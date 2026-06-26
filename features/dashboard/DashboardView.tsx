@@ -12,6 +12,7 @@ import {
 } from '@/components/ui';
 import { won, shortDate } from '@/lib/format';
 import { useTacoStore } from '@/lib/store';
+import { BackendPanel } from '@/features/system/BackendPanel';
 import type { EnrollmentStatus } from '@/types';
 
 const statusTone: Record<EnrollmentStatus, Tone> = {
@@ -129,6 +130,10 @@ export function DashboardView() {
             </ul>
           </SectionCard>
         </div>
+      </div>
+
+      <div className="mt-6">
+        <BackendPanel />
       </div>
     </div>
   );

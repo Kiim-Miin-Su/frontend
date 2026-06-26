@@ -1,6 +1,13 @@
 // 백엔드(NestJS)와 분리 운영. next.config.ts의 rewrites가 /api/* → API 서버로 프록시.
 // 데스크탑 전환 시 BASE만 절대 URL로 바꾸면 됩니다.
-import type { WebIdCheckResult } from "@taco/contracts";
+import type {
+  Student,
+  Enrollment,
+  Payment,
+  CreateStudentInput,
+  CreateEnrollmentInput,
+  WebIdCheckResult,
+} from "@taco/contracts";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -14,17 +21,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  health: () => request<{ status: string }>("/health"),
+  health: () => request<{ status: string; service: string; ts: string }>("/health"),
   students: {
-    list: () => request<unknown[]>("/students"),
-    create: (body: Record<string, unknown>) => request("/students", { method: "POST", body: JSON.stringify(body) }),
+    list: () => request<Student[]>("/students"),
+    get: (id: number) => request<Student>(`/students/${id}`),
+    create: (body: CreateStudentInput) =>
+      request<Student>("/students", { method: "POST", body: JSON.stringify(body) }),
   },
   enrollments: {
-    list: () => request<unknown[]>("/enrollments"),
-    create: (body: Record<string, unknown>) => request("/enrollments", { method: "POST", body: JSON.stringify(body) }),
+    list: (studentId?: number) =>
+      request<Enrollment[]>(`/enrollments${studentId ? `?studentId=${studentId}` : ""}`),
+    create: (body: CreateEnrollmentInput) =>
+      request<Enrollment>("/enrollments", { method: "POST", body: JSON.stringify(body) }),
   },
   payments: {
-    list: () => request<unknown[]>("/payments"),
+    list: () => request<Payment[]>("/payments"),
   },
   users: {
     // web id 존재 확인 (등록 폼 "확인하기")
