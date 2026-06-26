@@ -51,3 +51,6 @@ export const IconArrowUp = (p: SVGProps<SVGSVGElement>) => (
 export const IconArrowDown = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}><path d="M12 5v14M18 13l-6 6-6-6" /></svg>
 );
+export const IconChat = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="M4 5h16v11H9l-4 4v-4H4z" /><path d="M8 9.5h8M8 12.5h5" /></svg>
+);

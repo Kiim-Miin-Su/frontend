@@ -1,3 +1,4 @@
+'use client';
 import {
   Badge,
   StatCard,
@@ -7,11 +8,43 @@ import {
   IconArrowUp,
   IconUsers,
   IconReceipt,
+  type Tone,
 } from '@/components/ui';
 import { won, shortDate } from '@/lib/format';
-import { enrollments, txns, statusTone, statusLabel } from './data';
+import { useTacoStore } from '@/lib/store';
+import type { EnrollmentStatus } from '@/types';
+
+const statusTone: Record<EnrollmentStatus, Tone> = {
+  active: 'success',
+  paused: 'attention',
+  completed: 'done',
+  canceled: 'danger',
+};
+const statusLabel: Record<EnrollmentStatus, string> = {
+  active: '수강중',
+  paused: '일시정지',
+  completed: '수료',
+  canceled: '취소',
+};
 
 export function DashboardView() {
+  const store = useTacoStore();
+
+  // 스토어(mock)에서 파생
+  const inbound = store.transactions.filter((t) => t.direction === 'in').reduce((a, t) => a + t.amount, 0);
+  const outbound = store.transactions.filter((t) => t.direction === 'out').reduce((a, t) => a + t.amount, 0);
+  const unpaid = store.payments.filter((p) => p.status === 'pending').reduce((a, p) => a + p.amount, 0);
+
+  const recent = store.enrollments
+    .slice()
+    .sort((a, b) => b.enrolledAt.localeCompare(a.enrolledAt))
+    .slice(0, 5)
+    .map((e) => {
+      const student = store.students.find((s) => s.id === e.studentId);
+      const course = store.courses.find((c) => c.id === e.courseId);
+      return { id: e.id, student, course, status: e.status, amount: course?.price ?? 0, at: e.enrolledAt };
+    });
+
   return (
     <div className="p-6 max-w-[1200px] mx-auto">
       <div className="flex items-end justify-between mb-5">
@@ -21,26 +54,20 @@ export function DashboardView() {
         </div>
         <div className="flex items-center gap-2 text-[12px] text-fg-subtle">
           <span className="dot" style={{ backgroundColor: 'var(--color-success)' }} />
-          in-memory API 연결됨
+          mock 스토어 연결됨
         </div>
       </div>
 
-      {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard label="이번 달 입금" value={won(7420000)} tone="success"
-          icon={<IconArrowDown />} sub={<span className="text-success font-medium">+12.4%</span>} />
-        <StatCard label="이번 달 출금" value={won(3260000)} tone="attention"
-          icon={<IconArrowUp />} sub="강사 페이 · 지출" />
-        <StatCard label="신규 등록" value="18건" tone="accent"
-          icon={<IconUsers />} sub="상담 → 등록 전환 9건" />
-        <StatCard label="미수금" value={won(640000)} tone="danger"
-          icon={<IconReceipt />} sub="청구 3건 대기" />
+        <StatCard label="이번 달 입금" value={won(inbound)} tone="success" icon={<IconArrowDown />} sub="신규·재수강" />
+        <StatCard label="이번 달 출금" value={won(outbound)} tone="attention" icon={<IconArrowUp />} sub="강사 페이 · 지출" />
+        <StatCard label="수강 등록" value={`${store.enrollments.length}건`} tone="accent" icon={<IconUsers />} sub={`학생 ${store.students.length}명`} />
+        <StatCard label="미수금" value={won(unpaid)} tone="danger" icon={<IconReceipt />} sub={`청구 ${store.payments.filter((p) => p.status === 'pending').length}건 대기`} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Recent enrollments */}
         <div className="lg:col-span-2">
-          <SectionCard title="최근 수강 등록" action={<button className="btn btn-sm">전체 보기</button>}>
+          <SectionCard title="최근 수강 등록" action={<a href="/students" className="btn btn-sm">학생 관리</a>}>
             <table className="table">
               <thead>
                 <tr>
@@ -52,13 +79,13 @@ export function DashboardView() {
                 </tr>
               </thead>
               <tbody>
-                {enrollments.map((e) => (
+                {recent.map((e) => (
                   <tr key={e.id}>
                     <td>
-                      <div className="font-medium">{e.student}</div>
-                      <div className="text-[12px] text-fg-subtle">{e.english}</div>
+                      <div className="font-medium">{e.student?.name ?? '—'}</div>
+                      <div className="text-[12px] text-fg-subtle">{e.student?.englishName}</div>
                     </td>
-                    <td className="text-fg-muted">{e.course}</td>
+                    <td className="text-fg-muted">{e.course?.name ?? '—'}</td>
                     <td>
                       <Badge tone={statusTone[e.status]}>
                         <StatusDot tone={statusTone[e.status]} label={statusLabel[e.status]} />
@@ -73,44 +100,36 @@ export function DashboardView() {
           </SectionCard>
         </div>
 
-        {/* Transactions ledger */}
         <div>
           <SectionCard title="입·출금 원장" action={<span className="badge badge-neutral">오늘</span>}>
             <ul className="divide-y" style={{ borderColor: 'var(--color-line-muted)' }}>
-              {txns.map((t) => {
-                const inbound = t.dir === 'in';
+              {store.transactions.map((t) => {
+                const isIn = t.direction === 'in';
                 return (
                   <li key={t.id} className="flex items-center gap-3 px-4 py-3">
                     <span
                       className="w-7 h-7 rounded-full grid place-items-center shrink-0"
                       style={{
-                        backgroundColor: inbound ? 'var(--color-success-subtle)' : 'var(--color-attention-subtle)',
-                        color: inbound ? 'var(--color-success)' : 'var(--color-attention)',
+                        backgroundColor: isIn ? 'var(--color-success-subtle)' : 'var(--color-attention-subtle)',
+                        color: isIn ? 'var(--color-success)' : 'var(--color-attention)',
                       }}
                     >
-                      {inbound ? <IconArrowDown /> : <IconArrowUp />}
+                      {isIn ? <IconArrowDown /> : <IconArrowUp />}
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="text-[13px] font-medium truncate">{t.label}</div>
-                      <div className="text-[11px] text-fg-subtle uppercase">{t.method} · {shortDate(t.at)}</div>
+                      <div className="text-[11px] text-fg-subtle uppercase">{t.method} · {shortDate(t.occurredAt)}</div>
                     </div>
-                    <div className={`mono text-[13px] font-semibold ${inbound ? 'text-success' : 'text-fg'}`}>
-                      {inbound ? '+' : '−'}{won(t.amount)}
+                    <div className={`mono text-[13px] font-semibold ${isIn ? 'text-success' : 'text-fg'}`}>
+                      {isIn ? '+' : '−'}{won(t.amount)}
                     </div>
                   </li>
                 );
               })}
             </ul>
-            <div className="px-4 py-3 border-t">
-              <button className="btn btn-sm w-full justify-center">전체 원장 보기</button>
-            </div>
           </SectionCard>
         </div>
       </div>
-
-      <p className="mt-6 text-[12px] text-fg-subtle">
-        TACO ERP · 데모 데이터 · 디자인 시스템 미리보기 (밝은 테마)
-      </p>
     </div>
   );
 }
