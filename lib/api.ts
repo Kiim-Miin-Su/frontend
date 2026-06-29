@@ -9,7 +9,13 @@ import type {
   CreateStudentInput,
   CreateEnrollmentInput,
   WebIdCheckResult,
+  Room,
+  AvailabilityBlock,
+  AvailabilityOwner,
+  ScheduleRow,
 } from "@kms545487/contracts";
+
+export type ScheduleQuery = { from?: string; to?: string; instructorId?: number; roomId?: number };
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -38,5 +44,19 @@ export const api = {
     // web id 존재 확인 (등록 폼 "확인하기")
     exists: (webId: string) =>
       http.get<WebIdCheckResult>("/users/exists", { params: { webId } }).then((r) => r.data),
+  },
+  // ── 스케줄(v5) ──
+  schedule: {
+    list: (q: ScheduleQuery = {}) =>
+      http.get<ScheduleRow[]>("/schedule", { params: q }).then((r) => r.data),
+  },
+  rooms: {
+    list: () => http.get<Room[]>("/rooms").then((r) => r.data),
+  },
+  availability: {
+    list: (ownerType: AvailabilityOwner, ownerId: number) =>
+      http
+        .get<AvailabilityBlock[]>("/availability", { params: { ownerType, ownerId } })
+        .then((r) => r.data),
   },
 };
