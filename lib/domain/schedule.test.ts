@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { ClassSession, AvailabilityBlock } from '@/types';
-import { overlaps, addMinutes, weekdayOf, detectConflicts, teachingHours, moveCandidate, resizeCandidate } from './schedule';
+import { overlaps, addMinutes, weekdayOf, detectConflicts, teachingHours, moveCandidate, resizeCandidate, layoutLanes, suggestSlots } from './schedule';
 
 const sess = (p: Partial<ClassSession>): ClassSession => ({
   id: 1, courseId: 10, instructorId: 1, roomId: 1,
@@ -122,6 +122,47 @@ describe('teachingHours', () => {
     expect(r.sessions).toBe(2);
     expect(r.minutes).toBe(210);
     expect(r.hours).toBe(3.5);
+  });
+});
+
+describe('layoutLanes (겹침 나란히)', () => {
+  it('안 겹치면 모두 1열', () => {
+    const r = layoutLanes([{ id: 1, start: 540, end: 600 }, { id: 2, start: 660, end: 720 }]);
+    expect(r[1]).toEqual({ lane: 0, lanes: 1 });
+    expect(r[2]).toEqual({ lane: 0, lanes: 1 });
+  });
+  it('부분 겹침(시작/끝 다름) → 2열로 나란히', () => {
+    const r = layoutLanes([{ id: 1, start: 540, end: 660 }, { id: 2, start: 600, end: 720 }]);
+    expect(r[1].lanes).toBe(2);
+    expect(r[2].lanes).toBe(2);
+    expect(r[1].lane).not.toBe(r[2].lane);
+  });
+  it('3중 겹침 → 3열', () => {
+    const r = layoutLanes([
+      { id: 1, start: 540, end: 720 }, { id: 2, start: 560, end: 700 }, { id: 3, start: 580, end: 660 },
+    ]);
+    expect(Math.max(r[1].lanes, r[2].lanes, r[3].lanes)).toBe(3);
+  });
+});
+
+describe('suggestSlots (겹치지 않는 추천)', () => {
+  it('점유 시간과 겹치지 않는 후보만 반환', () => {
+    const sessions = [sess({ id: 1, instructorId: 1, sessionDate: '2026-06-29', startTime: '09:00', endTime: '10:00', durationMinutes: 60 })];
+    const slots = suggestSlots(
+      { weekStart: '2026-06-29', weekdays: [1], workStart: '09:00', workEnd: '11:00', durationMinutes: 60, stepMin: 30, instructorId: 1 },
+      { sessions },
+    );
+    // 09:00·09:30 후보는 점유와 겹쳐 제외, 10:00 후보만 남음
+    expect(slots.every((s) => s.startTime >= '10:00')).toBe(true);
+    expect(slots.some((s) => s.startTime === '10:00')).toBe(true);
+  });
+  it('불가시간(Block)도 제외', () => {
+    const blocks = [{ id: 1, ownerType: 'instructor' as const, ownerId: 1, kind: 'unavailable' as const, weekday: 1, startTime: '12:00', endTime: '13:00' }];
+    const slots = suggestSlots(
+      { weekStart: '2026-06-29', weekdays: [1], workStart: '11:00', workEnd: '14:00', durationMinutes: 60, stepMin: 60, instructorId: 1 },
+      { sessions: [], blocks },
+    );
+    expect(slots.some((s) => s.startTime === '12:00')).toBe(false);
   });
 });
 

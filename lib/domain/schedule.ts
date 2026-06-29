@@ -140,6 +140,94 @@ export const candidateToPatch = (c: ConflictCandidate): SchedulePatch => ({
   instructorId: c.instructorId,
 });
 
+// ── 슬롯 추천: 가용 ∩ − 점유 → 겹치지 않는 후보 시간 ──
+export type SuggestInput = {
+  weekStart: string; // 월요일 ISO
+  weekdays?: number[]; // 0(일)~6(토), 기본 월~금
+  workStart?: string; // 'HH:mm' 기본 09:00
+  workEnd?: string; // 기본 21:00
+  durationMinutes: number;
+  stepMin?: number; // 후보 간격, 기본 30
+  instructorId?: ID;
+  roomId?: ID;
+};
+export type SuggestCtx = {
+  sessions: ClassSession[]; // 점유(기존 수업)
+  blocks?: AvailabilityBlock[]; // 불가시간(Block)
+  limit?: number;
+};
+export type SlotCandidate = { date: string; weekday: number; startTime: string; endTime: string };
+
+/** 강사/강의실이 비어 있고 불가시간과 겹치지 않는 시작 후보를 주별로 생성. */
+export function suggestSlots(input: SuggestInput, ctx: SuggestCtx): SlotCandidate[] {
+  const wds = input.weekdays ?? [1, 2, 3, 4, 5];
+  const step = input.stepMin ?? 30;
+  const ws = toMin(input.workStart ?? '09:00');
+  const we = toMin(input.workEnd ?? '21:00');
+  const dur = input.durationMinutes;
+  const limit = ctx.limit ?? 24;
+  const dates = weekDates(input.weekStart);
+  const out: SlotCandidate[] = [];
+
+  const busy = (date: string, s: number, e: number): boolean => {
+    // 기존 수업(같은 강사/강의실) 점유
+    for (const ss of ctx.sessions) {
+      if (ss.sessionDate !== date || !ss.startTime) continue;
+      const sameRes = (input.instructorId != null && ss.instructorId === input.instructorId) ||
+        (input.roomId != null && ss.roomId === input.roomId);
+      if (!sameRes) continue;
+      const se = ss.endTime ? toMin(ss.endTime) : toMin(ss.startTime) + ss.durationMinutes;
+      if (s < se && toMin(ss.startTime) < e) return true;
+    }
+    // 불가시간(Block)
+    const wd = weekdayOf(date);
+    for (const b of ctx.blocks ?? []) {
+      if (b.kind !== 'unavailable' || b.weekday !== wd) continue;
+      const owns = (b.ownerType === 'instructor' && input.instructorId === b.ownerId) ||
+        (b.ownerType === 'room' && input.roomId === b.ownerId);
+      if (owns && s < toMin(b.endTime) && toMin(b.startTime) < e) return true;
+    }
+    return false;
+  };
+
+  for (const date of dates) {
+    if (!wds.includes(weekdayOf(date))) continue;
+    for (let s = ws; s + dur <= we; s += step) {
+      if (busy(date, s, s + dur)) continue;
+      out.push({ date, weekday: weekdayOf(date), startTime: fromMinLocal(s), endTime: fromMinLocal(s + dur) });
+      if (out.length >= limit) return out;
+    }
+  }
+  return out;
+}
+const fromMinLocal = (mm: number) => `${String(Math.floor(mm / 60)).padStart(2, '0')}:${String(mm % 60).padStart(2, '0')}`;
+
+// ── 겹치는 일정 나란히 배치(구글 캘린더식 레인) ──
+// 같은 컬럼(요일/강의실)에서 시간이 겹치는 이벤트를 열로 나눠 lane/lanes 부여.
+export type LaneItem = { id: number; start: number; end: number };
+export function layoutLanes(items: LaneItem[]): Record<number, { lane: number; lanes: number }> {
+  const sorted = [...items].sort((a, b) => a.start - b.start || a.end - b.end);
+  const res: Record<number, { lane: number; lanes: number }> = {};
+  let cluster: { id: number; lane: number }[] = [];
+  let colsEnd: number[] = [];
+  let clusterMaxEnd = -Infinity;
+  const flush = () => {
+    const lanes = colsEnd.length || 1;
+    cluster.forEach((c) => (res[c.id] = { lane: c.lane, lanes }));
+    cluster = []; colsEnd = []; clusterMaxEnd = -Infinity;
+  };
+  for (const ev of sorted) {
+    if (cluster.length && ev.start >= clusterMaxEnd) flush();
+    let lane = colsEnd.findIndex((e) => e <= ev.start);
+    if (lane === -1) { lane = colsEnd.length; colsEnd.push(ev.end); }
+    else colsEnd[lane] = ev.end;
+    cluster.push({ id: ev.id, lane });
+    clusterMaxEnd = Math.max(clusterMaxEnd, ev.end);
+  }
+  flush();
+  return res;
+}
+
 /** 주(週) 시작(월요일) 기준 7일 날짜 배열. */
 export function weekDates(weekStartISO: string): string[] {
   const base = new Date(weekStartISO + 'T00:00:00Z');
