@@ -1,6 +1,7 @@
 "use client";
 import { Badge, SectionCard, StatusDot, type Tone } from "@/components/ui";
 import { useTacoStore } from "@/lib/store";
+import { isActiveStudent } from "@/lib/domain/students";
 import type { StudentStatus } from "@/types";
 import { StudentForm } from "./StudentForm";
 import { useState } from "react";
@@ -17,7 +18,7 @@ const label: Record<StudentStatus, string> = {
   active: "수강중",
   paused: "일시정지",
   completed: "수료",
-  canceled: "취소",
+  canceled: "퇴원",
 };
 
 export function StudentsView() {
@@ -26,16 +27,21 @@ export function StudentsView() {
   const courses = useTacoStore((s) => s.courses);
   const parentStudents = useTacoStore((s) => s.parentStudents);
   const parents = useTacoStore((s) => s.parents);
-  const removeStudent = useTacoStore((s) => s.removeStudent);
+  const dropStudent = useTacoStore((s) => s.dropStudent);
   const [q, setQ] = useState("");
+  const [showDropped, setShowDropped] = useState(false);
   const kw = q.trim().toLowerCase();
+
+  // 기본 스코프 = 활성 학생만(퇴원 제외). 토글 시 퇴원 포함.
+  const scoped = showDropped ? students : students.filter(isActiveStudent);
   const filtered = kw
-    ? students.filter((s) =>
+    ? scoped.filter((s) =>
         [s.name, s.englishName, s.webId, s.phone]
           .filter(Boolean)
           .some((v) => String(v).toLowerCase().includes(kw)),
       )
-    : students;
+    : scoped;
+  const activeCount = students.filter(isActiveStudent).length;
 
   const coursesOf = (studentId: number) =>
     enrollments
@@ -54,14 +60,25 @@ export function StudentsView() {
     <div className="p-6 max-w-[1180px] mx-auto space-y-6">
       <div>
         <h1 className="text-[20px] font-semibold">학생</h1>
-        <p className="text-[13px] text-fg-muted mt-0.5">학생 등록 및 목록 · 총 {students.length}명</p>
+        <p className="text-[13px] text-fg-muted mt-0.5">학생 등록 및 목록 · 활성 {activeCount}명</p>
       </div>
 
       <SectionCard title="학생 등록">
         <StudentForm />
       </SectionCard>
 
-      <SectionCard title="학생 목록" action={<input className="input w-56 h-7" placeholder="이름·영문·ID·연락처 검색" value={q} onChange={(e) => setQ(e.target.value)} />}>
+      <SectionCard
+        title="학생 목록"
+        action={
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5 text-[12px] text-fg-muted select-none">
+              <input type="checkbox" checked={showDropped} onChange={(e) => setShowDropped(e.target.checked)} />
+              퇴원 포함
+            </label>
+            <input className="input w-56 h-7" placeholder="이름·영문·ID·연락처 검색" value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
+        }
+      >
         <div className="overflow-x-auto">
           <table className="table">
             <thead>
@@ -76,7 +93,7 @@ export function StudentsView() {
               </tr>
             </thead>
             <tbody>
-              {students.map((s) => {
+              {filtered.map((s) => {
                 const cs = coursesOf(s.id);
                 return (
                   <tr key={s.id}>
@@ -94,16 +111,24 @@ export function StudentsView() {
                       </Badge>
                     </td>
                     <td className="text-right">
-                      <button
-                        className="btn btn-sm btn-danger"
-                        onClick={() => {
-                          if (confirm(`${s.name} 학생을 삭제할까요? 출석·피드백·수강등록도 함께 삭제됩니다.`)) {
-                            removeStudent(s.id);
-                          }
-                        }}
-                      >
-                        삭제
-                      </button>
+                      {isActiveStudent(s) ? (
+                        <button
+                          className="btn btn-sm btn-danger"
+                          onClick={() => {
+                            if (
+                              confirm(
+                                `${s.name} 학생을 퇴원 처리할까요?\n상담·수업보고서·결제 등 이력은 보존되며, 활성 목록과 일정에서만 제외됩니다.`,
+                              )
+                            ) {
+                              dropStudent(s.id);
+                            }
+                          }}
+                        >
+                          퇴원 처리
+                        </button>
+                      ) : (
+                        <span className="text-[12px] text-fg-subtle">퇴원됨</span>
+                      )}
                     </td>
                   </tr>
                 );

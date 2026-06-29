@@ -33,6 +33,7 @@ import type {
 } from '@/types';
 import * as seed from './mock/seed';
 import { computeInstructorPay } from './payroll';
+import { dropStudent as dropStudentTx } from './domain/students';
 
 const nextId = (rows: { id: number }[]) =>
   rows.reduce((max, r) => Math.max(max, r.id), 0) + 1;
@@ -155,7 +156,7 @@ type TacoState = {
 
   // actions
   addStudent: (input: NewStudentInput) => Student;
-  removeStudent: (id: number) => void;
+  dropStudent: (id: number) => void; // 퇴원(소프트삭제): 비활성 전이, 데이터 보존
   addCounselForm: (input: NewCounselInput) => CounselForm;
   updateCounselForm: (formId: number, patch: Partial<CounselForm>) => void;
   updateCounselStatus: (formId: number, status: CounselStatus) => void;
@@ -264,16 +265,11 @@ export const useTacoStore = create<TacoState>((set) => ({
     return student;
   },
 
-  // 학생 삭제 시 출석·피드백·수강등록·결제·부모연결까지 cascade
-  removeStudent: (id) =>
-    set((s) => ({
-      students: s.students.filter((x) => x.id !== id),
-      enrollments: s.enrollments.filter((e) => e.studentId !== id),
-      attendance: s.attendance.filter((a) => a.studentId !== id),
-      sessionReports: s.sessionReports.filter((r) => r.studentId !== id),
-      parentStudents: s.parentStudents.filter((ps) => ps.studentId !== id),
-      payments: s.payments.filter((p) => p.studentId !== id),
-    })),
+  // 퇴원(소프트삭제): 학생/수강을 비활성 전이만 하고 레코드는 보존.
+  // 상담·수업보고서(학점)·결제·부모연결·출석 이력은 그대로 둔다(자산화).
+  // 규칙은 도메인 레이어(lib/domain/students)에 위임 → 백엔드 동일 재현.
+  dropStudent: (id) =>
+    set((s) => dropStudentTx(s.students, s.enrollments, id)),
 
   setAttendance: (sessionId, studentId, status) =>
     set((s) => {
@@ -425,6 +421,7 @@ export const useTacoStore = create<TacoState>((set) => ({
       status: 'pending',
       paymentMethod: input.paymentMethod,
       dueAt: input.dueAt,
+      createdAt: today(), // 등록일(청구 생성일) — 백엔드: DEFAULT now()
     };
     set((s) => {
       payment.id = nextId(s.payments);

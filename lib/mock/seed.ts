@@ -91,13 +91,13 @@ export const sessionReports: SessionReport[] = [
 ];
 
 export const payments: Payment[] = [
-  { id: 1, enrollmentId: 1, studentId: 1, amount: 480000, status: 'paid', paymentMethod: 'card', paidAt: '2026-06-24' },
-  { id: 2, enrollmentId: 2, studentId: 2, amount: 520000, status: 'paid', paymentMethod: 'transfer', paidAt: '2026-06-23' },
-  { id: 3, enrollmentId: 3, studentId: 4, amount: 480000, status: 'pending', dueAt: '2026-06-30' },
-  { id: 4, enrollmentId: 4, studentId: 1, amount: 420000, status: 'pending', dueAt: '2026-06-28' },
-  { id: 5, enrollmentId: 3, studentId: 4, amount: 480000, status: 'paid', paymentMethod: 'card', paidAt: '2026-06-10' },
-  { id: 6, enrollmentId: 4, studentId: 1, amount: 420000, status: 'paid', paymentMethod: 'transfer', paidAt: '2026-05-28' },
-  { id: 7, enrollmentId: 2, studentId: 2, amount: 520000, status: 'paid', paymentMethod: 'card', paidAt: '2026-05-15' },
+  { id: 1, enrollmentId: 1, studentId: 1, amount: 480000, status: 'paid', paymentMethod: 'card', createdAt: '2026-06-24', paidAt: '2026-06-24' },
+  { id: 2, enrollmentId: 2, studentId: 2, amount: 520000, status: 'paid', paymentMethod: 'transfer', createdAt: '2026-06-23', paidAt: '2026-06-23' },
+  { id: 3, enrollmentId: 3, studentId: 4, amount: 480000, status: 'pending', createdAt: '2026-06-25', dueAt: '2026-06-30' },
+  { id: 4, enrollmentId: 4, studentId: 1, amount: 420000, status: 'pending', createdAt: '2026-06-24', dueAt: '2026-06-28' },
+  { id: 5, enrollmentId: 3, studentId: 4, amount: 480000, status: 'paid', paymentMethod: 'card', createdAt: '2026-06-08', paidAt: '2026-06-10' },
+  { id: 6, enrollmentId: 4, studentId: 1, amount: 420000, status: 'paid', paymentMethod: 'transfer', createdAt: '2026-05-26', paidAt: '2026-05-28' },
+  { id: 7, enrollmentId: 2, studentId: 2, amount: 520000, status: 'paid', paymentMethod: 'card', createdAt: '2026-05-13', paidAt: '2026-05-15' },
 ];
 
 export const transactions: Transaction[] = [

@@ -12,7 +12,8 @@ export function PaymentsView() {
   const [view, setView] = useState<'list' | 'calendar'>('list');
 
   const nameOf = (id: number) => students.find((s) => s.id === id)?.name ?? '—';
-  const dateOf = (p: (typeof payments)[number]) => p.paidAt ?? p.dueAt;
+  // 캘린더 표시 기준: 수납 완료=수납일, 미수=등록일(청구 생성일).
+  const dateOf = (p: (typeof payments)[number]) => p.paidAt ?? p.createdAt ?? p.dueAt;
 
   const totalPaid = payments.filter((p) => p.status === 'paid').reduce((a, p) => a + p.amount, 0);
   const totalDue = payments.filter((p) => p.status === 'pending').reduce((a, p) => a + p.amount, 0);
@@ -42,7 +43,8 @@ export function PaymentsView() {
                 <th className="text-right">금액</th>
                 <th>수단</th>
                 <th>상태</th>
-                <th className="text-right">기한/수납일</th>
+                <th className="text-right">등록일</th>
+                <th className="text-right">수납일</th>
                 <th></th>
               </tr>
             </thead>
@@ -53,7 +55,8 @@ export function PaymentsView() {
                   <td className="text-right mono">{won(p.amount)}</td>
                   <td className="text-fg-muted">{p.paymentMethod ? methodLabel[p.paymentMethod] : '—'}</td>
                   <td><Badge tone={statusTone[p.status]}>{statusLabel[p.status]}</Badge></td>
-                  <td className="text-right mono text-fg-muted">{dateOf(p) ?? '—'}</td>
+                  <td className="text-right mono text-fg-muted">{p.createdAt ?? '—'}</td>
+                  <td className="text-right mono text-fg-muted">{p.paidAt ?? '—'}</td>
                   <td className="text-right"><Link href={`/payments/${p.id}`} className="btn btn-sm">상세</Link></td>
                 </tr>
               ))}
