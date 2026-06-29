@@ -19,7 +19,9 @@ import type {
 export type ScheduleQuery = { from?: string; to?: string; instructorId?: number; roomId?: number };
 export type SchedulePatchBody = {
   sessionDate?: string; startTime?: string; endTime?: string; durationMinutes?: number;
-  roomId?: number; instructorId?: number; courseId?: number; status?: string; topic?: string; force?: boolean;
+  roomId?: number; instructorId?: number; courseId?: number; status?: string; topic?: string;
+  // 반복 편집 범위(this=이 일정만 · this_and_following=이후 전부 · all=시리즈 전체). seriesId가 있을 때만 의미.
+  scope?: "this" | "this_and_following" | "all"; force?: boolean;
 };
 export type ConflictCheckBody = {
   sessionDate: string; startTime: string; endTime?: string; durationMinutes?: number;
@@ -60,7 +62,7 @@ export const api = {
       http.get<ScheduleRow[]>("/schedule", { params: q }).then((r) => r.data),
     // 이동·리사이즈·편집 → { row, conflicts }. 충돌 시 409(서버) → force로 재시도.
     update: (id: number, body: SchedulePatchBody) =>
-      http.patch<{ row: ScheduleRow; conflicts: Conflict[] }>(`/schedule/${id}`, body).then((r) => r.data),
+      http.patch<{ row: ScheduleRow; conflicts: Conflict[]; updated: number }>(`/schedule/${id}`, body).then((r) => r.data),
     conflicts: (body: ConflictCheckBody) =>
       http.post<Conflict[]>("/schedule/conflicts", body).then((r) => r.data),
   },
