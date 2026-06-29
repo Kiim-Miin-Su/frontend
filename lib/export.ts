@@ -1,5 +1,6 @@
-// 주간 스케줄 → 엑셀(.xlsx) / CSV 내보내기. (브라우저 다운로드)
+// 주간 스케줄 → 엑셀(.xlsx) / 이미지(PNG·JPEG) 내보내기. (브라우저 다운로드)
 import * as XLSX from "xlsx";
+import { toPng, toJpeg } from "html-to-image";
 import type { ScheduleRow } from "@/types";
 
 const WD = ["일", "월", "화", "수", "목", "금", "토"];
@@ -14,29 +15,34 @@ function toRows(rows: ScheduleRow[]) {
     수업: r.courseName,
     강사: r.instructorName,
     강의실: r.roomName ?? "",
+    학생: (r.studentNames ?? []).join(", "),
     상태: r.status,
   }));
 }
 
 export function exportScheduleXlsx(rows: ScheduleRow[], filename = "timetable.xlsx") {
   const ws = XLSX.utils.json_to_sheet(toRows(rows));
-  ws["!cols"] = [12, 6, 7, 7, 8, 18, 10, 12, 10].map((w) => ({ wch: w }));
+  ws["!cols"] = [12, 6, 7, 7, 8, 18, 10, 12, 16, 10].map((w) => ({ wch: w }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "주간 스케줄");
   XLSX.writeFile(wb, filename);
 }
 
-export function exportScheduleCsv(rows: ScheduleRow[], filename = "timetable.csv") {
-  const data = toRows(rows);
-  const head = ["날짜", "요일", "시작", "종료", "과목", "수업", "강사", "강의실", "상태"];
-  const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const lines = [head.join(","), ...data.map((d) => head.map((h) => esc((d as Record<string, unknown>)[h])).join(","))];
-  // BOM 추가(엑셀 한글 깨짐 방지)
-  const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
+// 캘린더/표 DOM 노드를 이미지로 캡처해 다운로드(PNG 또는 JPEG).
+export async function exportNodeAsImage(
+  node: HTMLElement,
+  filename: string,
+  type: "png" | "jpeg" = "png",
+) {
+  // 가로 스크롤(주/일 그리드)이 잘리지 않도록 전체 스크롤 크기로 캡처.
+  const width = Math.max(node.scrollWidth, node.clientWidth);
+  const height = Math.max(node.scrollHeight, node.clientHeight);
+  const opts = { backgroundColor: "#ffffff", pixelRatio: 2, cacheBust: true, width, height };
+  const dataUrl = type === "jpeg"
+    ? await toJpeg(node, { ...opts, quality: 0.95 })
+    : await toPng(node, opts);
   const a = document.createElement("a");
-  a.href = url;
+  a.href = dataUrl;
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(url);
 }

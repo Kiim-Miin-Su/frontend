@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ScheduleRow, Room, AvailabilityBlock } from "@/types";
 import { api } from "@/lib/api";
 import { weekDates, weekdayOf, toMin, teachingHours } from "@/lib/domain/schedule";
-import { exportScheduleXlsx, exportScheduleCsv } from "@/lib/export";
+import { exportScheduleXlsx } from "@/lib/export";
 
 const WD = ["일", "월", "화", "수", "목", "금", "토"];
 const HOURS = Array.from({ length: 13 }, (_, i) => 9 + i); // 09:00 ~ 21:00
@@ -98,8 +98,6 @@ export function WeeklyTable() {
           <button className="btn btn-sm" onClick={() => setWeekStart(addDaysISO(weekStart, 7))}>다음주 ▶</button>
           <button className="btn btn-sm btn-primary" disabled={!rows.length}
             onClick={() => exportScheduleXlsx(rows, `timetable_${from}.xlsx`)}>엑셀 내보내기</button>
-          <button className="btn btn-sm" disabled={!rows.length}
-            onClick={() => exportScheduleCsv(rows, `timetable_${from}.csv`)}>CSV</button>
         </div>
       </div>
 
@@ -129,7 +127,7 @@ export function WeeklyTable() {
             <span className="inline-block w-3 h-3 rounded-sm" style={{ background: "var(--color-neutral-subtle)", border: "1px solid var(--color-line)" }} /> 불가시간(Block)
           </span>
         )}
-        {state === "error" && <span className="text-[12px] text-danger">백엔드 연결 실패 — docker로 API(:3001)를 실행했는지 확인하세요.</span>}
+        {state === "error" && <span className="text-[12px] text-danger">백엔드 API에 연결할 수 없습니다. 서버 상태와 API 주소 설정을 확인하세요.</span>}
         {state === "loading" && <span className="text-[12px] text-fg-subtle">불러오는 중…</span>}
       </div>
 

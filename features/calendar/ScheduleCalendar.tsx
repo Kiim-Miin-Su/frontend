@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { ScheduleRow, Room, Conflict, ScheduleResources, ScheduleResource, AvailabilityBlock } from "@/types";
 import { api, type SchedulePatchBody } from "@/lib/api";
 import { weekDates, weekdayOf, layoutLanes, teachingHours, toMin as toMinD } from "@/lib/domain/schedule";
-import { exportScheduleXlsx, exportScheduleCsv } from "@/lib/export";
+import { exportScheduleXlsx, exportNodeAsImage } from "@/lib/export";
 import { ResourceRail } from "./ResourceRail";
 import { AvailabilityPanel } from "./AvailabilityPanel";
 import { TableView } from "./TableView";
@@ -56,6 +56,10 @@ export function ScheduleCalendar() {
   const [selBlocks, setSelBlocks] = useState<AvailabilityBlock[]>([]); // 선택 자원의 불가시간(밴드 표시)
   const [showAvail, setShowAvail] = useState(false);
 
+  // 이미지(PNG/JPEG) 내보내기
+  const captureRef = useRef<HTMLDivElement>(null);
+  const [busyImg, setBusyImg] = useState(false);
+
   // ── 필터(Lantiv형) ──
   const [q, setQ] = useState("");
   const [colorBy, setColorBy] = useState<ColorBy>("subject");
@@ -101,7 +105,7 @@ export function ScheduleCalendar() {
       if (!rooms.length) setRooms(rm);
       setMsg("");
     } catch {
-      setMsg("백엔드 연결 실패 — API(:3001)가 실행 중인지 확인하세요.");
+      setMsg("백엔드 API에 연결할 수 없습니다. 서버 상태와 API 주소(NEXT_PUBLIC_API_URL) 설정을 확인하세요.");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [range.from, range.to, selQuery]);
@@ -219,6 +223,20 @@ export function ScheduleCalendar() {
     else applyPatch(r.id, patch);
   }
 
+  // 현재 뷰(캘린더/표)를 이미지로 저장
+  async function saveImage(type: "png" | "jpeg") {
+    if (!captureRef.current) return;
+    setBusyImg(true);
+    try {
+      const label = view === "month" ? anchor.slice(0, 7) : view === "day" ? anchor : `${dates[0]}_${dates[6]}`;
+      await exportNodeAsImage(captureRef.current, `schedule_${view}_${label}.${type === "jpeg" ? "jpg" : "png"}`, type);
+    } catch {
+      setMsg("이미지 내보내기 실패");
+    } finally {
+      setBusyImg(false);
+    }
+  }
+
   // ── 드래그 이동 ──
   const onDragStart = (e: React.DragEvent, r: ScheduleRow) => {
     if (resizingRef.current) { e.preventDefault(); return; }
@@ -311,13 +329,13 @@ export function ScheduleCalendar() {
             <input type="date" className="input h-7 w-36" value={anchor} onChange={(e) => setAnchor(e.target.value)} />
           )}
           {view === "table" && (
-            <>
-              <button className="btn btn-sm btn-primary" disabled={!filtered.length}
-                onClick={() => exportScheduleXlsx(filtered, `timetable_${dates[0]}.xlsx`)}>엑셀</button>
-              <button className="btn btn-sm" disabled={!filtered.length}
-                onClick={() => exportScheduleCsv(filtered, `timetable_${dates[0]}.csv`)}>CSV</button>
-            </>
+            <button className="btn btn-sm btn-primary" disabled={!filtered.length}
+              onClick={() => exportScheduleXlsx(filtered, `timetable_${dates[0]}.xlsx`)}>엑셀</button>
           )}
+          <button className="btn btn-sm" disabled={busyImg}
+            onClick={() => saveImage("png")} title="현재 화면을 PNG로 저장">PNG</button>
+          <button className="btn btn-sm" disabled={busyImg}
+            onClick={() => saveImage("jpeg")} title="현재 화면을 JPEG로 저장">JPEG</button>
           {selected && <button className="btn btn-sm" onClick={() => setShowAvail(true)}>가용 · 추천</button>}
         </div>
       </div>
@@ -361,6 +379,7 @@ export function ScheduleCalendar() {
 
           {msg && <div className="text-[12px] text-danger">{msg}</div>}
 
+          <div ref={captureRef} className="bg-canvas">
           {view === "month" ? (
             <MonthGrid anchor={anchor} rows={filtered} colorOf={colorOf}
               onPick={(r) => setEditing(r)} onPickDay={(d) => { setAnchor(d); setView("day"); }} />
@@ -436,6 +455,7 @@ export function ScheduleCalendar() {
               </div>
             </div>
           )}
+          </div>
           {isGrid && selected?.type === "instructor" && (
             <p className="text-[12px] text-fg-subtle">개인 스케줄: {selected.name} · {filtered.length}개 수업 · 시수 {hrs.hours}h</p>
           )}

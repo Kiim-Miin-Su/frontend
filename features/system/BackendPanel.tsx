@@ -48,7 +48,7 @@ export function BackendPanel() {
     >
       {status === 'offline' ? (
         <div className="p-4 text-[13px] text-fg-muted">
-          백엔드 API에 연결할 수 없습니다. <span className="mono">cd backend &amp;&amp; npm run dev</span> 로 서버(3001)를 띄워주세요.
+          백엔드 API에 연결할 수 없습니다. 로컬은 <span className="mono">cd backend &amp;&amp; npm run dev</span>, 배포 환경은 <span className="mono">NEXT_PUBLIC_API_URL</span> 설정과 서버 상태를 확인하세요.
         </div>
       ) : (
         <div className="p-4 space-y-3">

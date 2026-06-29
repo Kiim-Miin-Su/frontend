@@ -1,6 +1,6 @@
 // 백엔드(NestJS) REST 클라이언트 — Axios.
-// next.config.ts의 rewrites가 /api/* → API 서버(3001)로 프록시.
-// 데스크탑 전환 시 baseURL만 절대 URL로 바꾸면 됩니다.
+// baseURL = `${NEXT_PUBLIC_API_URL}/api`. 로컬은 미설정 시 next.config rewrites가 localhost로 프록시,
+// 배포(Vercel)는 NEXT_PUBLIC_API_URL을 백엔드 도메인으로 지정하면 직접 호출(백엔드 CORS 허용).
 import axios from "axios";
 import type {
   Student,
