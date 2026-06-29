@@ -55,11 +55,13 @@ export function StudentForm() {
       return;
     }
     addStudent({
-      name: f.name.trim(),
-      englishName: f.englishName.trim() || undefined,
-      grade: f.grade ? Number(f.grade) : undefined,
-      phone: f.phone.trim() || undefined,
-      webId: f.webId.trim() || undefined,
+      student: {
+        name: f.name.trim(),
+        englishName: f.englishName.trim() || undefined,
+        grade: f.grade ? Number(f.grade) : undefined,
+        phone: f.phone.trim() || undefined,
+        webId: f.webId.trim() || undefined,
+      },
       courseId: f.courseId ? Number(f.courseId) : undefined,
       parent: f.parentName.trim()
         ? {

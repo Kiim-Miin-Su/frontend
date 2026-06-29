@@ -21,6 +21,8 @@ import type {
   CounselForm,
   CounselRound,
   AcademyEvent,
+  Roadmap,
+  RoadmapCourse,
 } from '@/types';
 
 export const instructors: Instructor[] = [
@@ -66,9 +68,9 @@ export const enrollments: Enrollment[] = [
 ];
 
 export const classSessions: ClassSession[] = [
-  { id: 1, courseId: 10, instructorId: 1, sessionDate: '2026-06-24', durationMinutes: 90, status: 'held', topic: 'Reading: 추론(Inference) 문제 전략' },
-  { id: 2, courseId: 11, instructorId: 2, sessionDate: '2026-06-23', durationMinutes: 90, status: 'held', topic: '적분 응용 (부분적분)' },
-  { id: 3, courseId: 10, instructorId: 1, sessionDate: '2026-06-26', durationMinutes: 90, status: 'scheduled', topic: 'Vocabulary in context' },
+  { id: 1, courseId: 10, instructorId: 1, sessionDate: '2026-06-24', startTime: '16:00', durationMinutes: 90, status: 'held', topic: 'Reading: 추론(Inference) 문제 전략' },
+  { id: 2, courseId: 11, instructorId: 2, sessionDate: '2026-06-23', startTime: '18:00', durationMinutes: 90, status: 'held', topic: '적분 응용 (부분적분)' },
+  { id: 3, courseId: 10, instructorId: 1, sessionDate: '2026-06-26', startTime: '16:00', durationMinutes: 90, status: 'scheduled', topic: 'Vocabulary in context' },
 ];
 
 // 수업1(코스10) 수강생: 학생 1,4 / 수업2(코스11) 수강생: 학생 2
@@ -204,4 +206,13 @@ export const academyEvents: AcademyEvent[] = [
   { id: 2, title: 'SAT 모의고사', type: 'exam', priority: 'high', startDate: '2026-06-28', endDate: '2026-06-28', allDay: true },
   { id: 3, title: '창립기념일 휴원', type: 'holiday', priority: 'high', startDate: '2026-07-01', endDate: '2026-07-01', allDay: true },
   { id: 4, title: '자습실 연장 운영', type: 'notice', priority: 'normal', startDate: '2026-06-26', endDate: '2026-06-30' },
+];
+
+// ── 로드맵 (코스 묶음) + 코스 M:N 연결 ──
+export const roadmaps: Roadmap[] = [
+  { id: 1, title: 'SAT 종합 로드맵', description: 'Reading→TOEFL 병행 코스 묶음', targetGrade: 11, durationWeeks: 24, isActive: true },
+];
+export const roadmapCourses: RoadmapCourse[] = [
+  { id: 1, roadmapId: 1, courseId: 10, sortOrder: 0 },
+  { id: 2, roadmapId: 1, courseId: 12, sortOrder: 1 },
 ];

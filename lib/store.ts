@@ -12,24 +12,30 @@ import type {
   AttendanceStatus,
   SessionReport,
   Payment,
-  PaymentMethod,
   Transaction,
   Expense,
-  ExpenseCategory,
-  ApprovalStatus,
   InstructorPayout,
   AcademyEvent,
-  EventType,
-  EventPriority,
   AccountRole,
   CounselForm,
   CounselRound,
   CounselStatus,
-  CounselSource,
-  CounselResult,
-  DesiredStartTime,
-  LearningAtmosphere,
-  StudentIntention,
+  Roadmap,
+  RoadmapCourse,
+  // 요청 DTO (단일 소스 @kms545487/contracts) — store/mock 매개변수도 동일 타입 사용
+  CreateStudentInput,
+  ParentLinkInput,
+  CreateSubjectInput,
+  CreateCourseInput,
+  CreateRoadmapInput,
+  CreateClassSessionInput,
+  CreateRecurringInput,
+  CreatePaymentInput,
+  CreateExpenseInput,
+  CreatePayoutInput,
+  CreateEventInput,
+  CreateCounselInput,
+  CreateCounselRoundInput,
 } from '@/types';
 import * as seed from './mock/seed';
 import { computeInstructorPay } from './payroll';
@@ -38,94 +44,17 @@ import { dropStudent as dropStudentTx } from './domain/students';
 const nextId = (rows: { id: number }[]) =>
   rows.reduce((max, r) => Math.max(max, r.id), 0) + 1;
 
-export type NewStudentInput = {
-  name: string;
-  englishName?: string;
-  grade?: number;
-  phone?: string;
-  webId?: string; // 학생 로그인 id (선택 — 연결용)
-  courseId?: number; // 등록할 코스 (선택)
-  parent?: {
-    name: string;
-    phone?: string;
-    webId?: string; // 부모 로그인 id (선택)
-    relation?: string;
-  };
-};
-
 const today = () => new Date().toISOString().slice(0, 10);
 
-export type NewCounselInput = {
-  applicantName: string;
-  applicantPhone?: string;
-  source: CounselSource; // internal_form(학생/학부모) | manual(상담실장) …
-  assignedStaffId?: number;
-  interestSubjectId?: number;
-  interestCourseId?: number;
-  academyExpectation?: string;
-  desiredStartTime?: DesiredStartTime;
-  learningAtmosphere?: LearningAtmosphere;
-  studentIntention?: StudentIntention;
-  weakness?: string;
-};
-
-export type NewRoundInput = {
-  counselorId?: number;
-  summary?: string;
-  detail?: string;
-  result?: CounselResult;
-  nextAction?: string;
-  nextContactAt?: string;
-};
-
-export type NewClassSessionInput = {
-  courseId: number;
-  instructorId: number;
-  sessionDate: string;
-  durationMinutes: number;
-  topic?: string;
-};
-
-export type NewPaymentInput = {
-  studentId: number;
-  enrollmentId?: number;
-  amount: number;
-  paymentMethod?: PaymentMethod;
-  dueAt?: string;
-};
-
-export type NewExpenseInput = {
-  category: ExpenseCategory;
-  title: string;
-  amount: number;
-  spentAt: string;
-  vendor?: string;
-  memo?: string;
-  receiptUrl?: string;
-};
-
-export type NewSubjectInput = { code: string; name: string };
-export type NewCourseInput = { name: string; subjectId: number; instructorId: number; price: number; hourlyRate: number };
-export type NewPayoutInput = { instructorId: number; periodStart: string; periodEnd: string };
-export type NewEventInput = {
-  title: string;
-  type: EventType;
-  priority?: EventPriority;
-  startDate: string;
-  endDate: string;
-  allDay?: boolean;
-  memo?: string;
-};
-
-// 기간 + 요일 반복으로 다건 수업 생성
-export type RecurringSessionInput = {
-  courseId: number;
-  instructorId: number;
-  startDate: string; // YYYY-MM-DD
-  endDate: string; // YYYY-MM-DD
-  weekdays: number[]; // 0(일)~6(토)
-  durationMinutes: number;
-  topic?: string;
+// 학생 등록은 복합 폼 → 여러 엔드포인트로 분해되므로 단일 DTO로 합치지 않고
+// 계약 DTO의 "조합(command)"으로 표현한다(UI 폼 책임 ≠ API 요청 책임).
+//   student  → POST /students
+//   parent   → POST /parents (신규 학생에 연결)
+//   courseId → POST /enrollments
+export type RegisterStudentCommand = {
+  student: CreateStudentInput;
+  parent?: ParentLinkInput;
+  courseId?: number;
 };
 
 type TacoState = {
@@ -147,6 +76,8 @@ type TacoState = {
   counselForms: CounselForm[];
   counselRounds: CounselRound[];
   academyEvents: AcademyEvent[];
+  roadmaps: Roadmap[];
+  roadmapCourses: RoadmapCourse[];
 
   // 데모용 현재 사용자(권한/본인 식별)
   currentRole: AccountRole;
@@ -154,27 +85,28 @@ type TacoState = {
   setCurrentRole: (role: AccountRole) => void;
   setCurrentStudentId: (id: number) => void;
 
-  // actions
-  addStudent: (input: NewStudentInput) => Student;
+  // actions — 입력 payload는 계약 DTO(@kms545487/contracts)와 동일(단일 소스)
+  addStudent: (input: RegisterStudentCommand) => Student; // 복합 폼: DTO 조합
   dropStudent: (id: number) => void; // 퇴원(소프트삭제): 비활성 전이, 데이터 보존
-  addCounselForm: (input: NewCounselInput) => CounselForm;
+  addCounselForm: (input: CreateCounselInput) => CounselForm;
   updateCounselForm: (formId: number, patch: Partial<CounselForm>) => void;
   updateCounselStatus: (formId: number, status: CounselStatus) => void;
-  addCounselRound: (formId: number, input: NewRoundInput) => void;
-  addClassSession: (input: NewClassSessionInput) => ClassSession;
-  addRecurringClassSessions: (input: RecurringSessionInput) => number;
-  addPayment: (input: NewPaymentInput) => Payment;
+  addCounselRound: (formId: number, input: CreateCounselRoundInput) => void;
+  addClassSession: (input: CreateClassSessionInput) => ClassSession;
+  addRecurringClassSessions: (input: CreateRecurringInput) => number;
+  addPayment: (input: CreatePaymentInput) => Payment;
   markPaymentPaid: (paymentId: number) => void;
   updatePayment: (id: number, patch: Partial<Payment>) => void;
-  addExpense: (input: NewExpenseInput) => Expense; // status=requested (승인 대기)
+  addExpense: (input: CreateExpenseInput) => Expense; // status=requested (승인 대기)
   approveExpense: (id: number) => void; // super_admin
   rejectExpense: (id: number) => void; // super_admin
-  addInstructorPayout: (input: NewPayoutInput) => InstructorPayout; // status=pending(요청)
+  addInstructorPayout: (input: CreatePayoutInput) => InstructorPayout; // status=pending(요청)
   approvePayout: (id: number) => void; // super_admin → confirmed
   markPayoutPaid: (id: number) => void; // confirmed → paid (출금)
-  addSubject: (input: NewSubjectInput) => Subject;
-  addCourse: (input: NewCourseInput) => Course;
-  addAcademyEvent: (input: NewEventInput) => AcademyEvent;
+  addSubject: (input: CreateSubjectInput) => Subject;
+  addCourse: (input: CreateCourseInput) => Course;
+  addRoadmap: (input: CreateRoadmapInput) => Roadmap;
+  addAcademyEvent: (input: CreateEventInput) => AcademyEvent;
   setAttendance: (sessionId: number, studentId: number, status: AttendanceStatus) => void;
   upsertReport: (
     sessionId: number,
@@ -203,6 +135,8 @@ export const useTacoStore = create<TacoState>((set) => ({
   counselForms: [...seed.counselForms],
   counselRounds: [...seed.counselRounds],
   academyEvents: [...seed.academyEvents],
+  roadmaps: [...seed.roadmaps],
+  roadmapCourses: [...seed.roadmapCourses],
 
   currentRole: 'super_admin',
   currentStudentId: 1,
@@ -210,27 +144,28 @@ export const useTacoStore = create<TacoState>((set) => ({
   setCurrentStudentId: (id) => set({ currentStudentId: id }),
 
   addStudent: (input) => {
+    const { student: s0, parent: p0, courseId } = input;
     const student: Student = {
       id: 0,
-      name: input.name,
-      englishName: input.englishName,
-      grade: input.grade,
-      phone: input.phone,
-      status: input.courseId ? 'active' : 'lead', // 코스 등록까지 하면 active
-      webId: input.webId,
+      name: s0.name,
+      englishName: s0.englishName,
+      grade: s0.grade,
+      phone: s0.phone,
+      status: s0.status ?? (courseId ? 'active' : 'lead'), // 코스 등록까지 하면 active
+      webId: s0.webId,
     };
     set((s) => {
       student.id = nextId(s.students);
       const patch: Partial<TacoState> = { students: [student, ...s.students] };
 
       // 학부모(선택) → parents + 학생-부모 연결
-      if (input.parent?.name) {
+      if (p0?.name) {
         const parent: Parent = {
           id: nextId(s.parents),
-          name: input.parent.name,
-          phone: input.parent.phone ?? '',
+          name: p0.name,
+          phone: p0.phone ?? '',
           kakaoAvailable: false,
-          webId: input.parent.webId,
+          webId: p0.webId,
         };
         patch.parents = [...s.parents, parent];
         patch.parentStudents = [
@@ -239,21 +174,21 @@ export const useTacoStore = create<TacoState>((set) => ({
             id: nextId(s.parentStudents),
             parentId: parent.id,
             studentId: student.id,
-            relation: input.parent.relation,
-            isPayer: true,
-            isPrimary: true,
+            relation: p0.relation,
+            isPayer: p0.isPayer ?? true,
+            isPrimary: p0.isPrimary ?? true,
           },
         ];
       }
 
       // 등록 코스(선택) → enrollment 생성
-      if (input.courseId) {
+      if (courseId) {
         patch.enrollments = [
           ...s.enrollments,
           {
             id: nextId(s.enrollments),
             studentId: student.id,
-            courseId: input.courseId,
+            courseId,
             status: 'active',
             completedSessions: 0,
             enrolledAt: today(),
@@ -399,6 +334,7 @@ export const useTacoStore = create<TacoState>((set) => ({
       courseId: input.courseId,
       instructorId: input.instructorId,
       sessionDate: input.sessionDate,
+      startTime: input.startTime,
       durationMinutes: input.durationMinutes,
       status: 'scheduled',
       topic: input.topic,
@@ -557,14 +493,19 @@ export const useTacoStore = create<TacoState>((set) => ({
       const start = new Date(input.startDate);
       const end = new Date(input.endDate);
       let nid = s.classSessions.reduce((m, r) => Math.max(m, r.id), 0);
+      // 같은 시리즈 묶음 id(시리즈 편집용)
+      const seriesId =
+        s.classSessions.reduce((m, r) => Math.max(m, r.seriesId ?? 0), 0) + 1;
       for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
         if (input.weekdays.includes(d.getDay())) {
           nid += 1;
           sessions.push({
             id: nid,
+            seriesId,
             courseId: input.courseId,
             instructorId: input.instructorId,
             sessionDate: d.toISOString().slice(0, 10),
+            startTime: input.startTime,
             durationMinutes: input.durationMinutes,
             status: 'scheduled',
             topic: input.topic,
@@ -605,6 +546,32 @@ export const useTacoStore = create<TacoState>((set) => ({
       return { courses: [...s.courses, course] };
     });
     return course;
+  },
+
+  // 로드맵 생성 + 코스 M:N 연결(순서 보존)
+  addRoadmap: (input) => {
+    const roadmap: Roadmap = {
+      id: 0,
+      title: input.title,
+      description: input.description,
+      targetGrade: input.targetGrade,
+      isActive: true,
+    };
+    set((s) => {
+      roadmap.id = nextId(s.roadmaps);
+      let rcId = nextId(s.roadmapCourses) - 1;
+      const links: RoadmapCourse[] = (input.courseIds ?? []).map((courseId, i) => ({
+        id: ++rcId,
+        roadmapId: roadmap.id,
+        courseId,
+        sortOrder: i,
+      }));
+      return {
+        roadmaps: [...s.roadmaps, roadmap],
+        roadmapCourses: [...s.roadmapCourses, ...links],
+      };
+    });
+    return roadmap;
   },
 
   addAcademyEvent: (input) => {
