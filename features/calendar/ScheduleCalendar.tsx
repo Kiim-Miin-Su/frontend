@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { ScheduleRow, Room, Conflict, ScheduleResources, ScheduleResource, AvailabilityBlock, AccountRole } from "@/types";
 import { api, type SchedulePatchBody, type ScheduleCreateBody, type AvailabilityUpsertBody } from "@/lib/api";
-import { weekDates, weekdayOf, layoutLanes, teachingHours, toMin as toMinD } from "@/lib/domain/schedule";
+import { weekDates, weekdayOf, layoutLanes, teachingHours, toMin as toMinD, ownerWindows } from "@/lib/domain/schedule";
 import { exportScheduleXlsx, exportNodeAsImage } from "@/lib/export";
 import { useTacoStore } from "@/lib/store";
 import { isAdmin, roleLabel } from "@/lib/roles";
@@ -260,8 +260,9 @@ export function ScheduleCalendar() {
     try { await api.availability.remove(id); reloadSelBlocks(); } catch { setMsg("삭제 실패"); }
   }
 
-  // ── 불가/가용 밴드를 스케줄처럼 관리: 클릭=선택 · 끝 드래그=리사이즈 · ✕=삭제 ──
+  // ── 불가/가용 밴드를 스케줄처럼 관리: 클릭=선택 · 끝 드래그=리사이즈 · 더블클릭=수정 · ✕=삭제 ──
   const [selBand, setSelBand] = useState<number | null>(null);
+  const [editingBlock, setEditingBlock] = useState<AvailabilityBlock | null>(null);
   const [bDraft, setBDraft] = useState<{ colKey: string; start: number; end: number; kind: string } | null>(null);
   const bDragRef = useRef<{
     colKey: string; date: string; kind: AvailabilityBlock["kind"]; id: number; edge: "top" | "bottom";
@@ -726,6 +727,7 @@ export function ScheduleCalendar() {
                   setAnchor(d);
                   setView("day");
                 }}
+                onCreateDay={(d) => canAdd && setCreating({ date: d })}
               />
             ) : view === "table" ? (
               <TableView
@@ -809,7 +811,8 @@ export function ScheduleCalendar() {
                               <div
                                 key={`b${b.id}`}
                                 onClick={(e) => { if (selected) { e.stopPropagation(); setSelBand(on ? null : b.id); setSelEvent(null); } }}
-                                title={b.kind === "unavailable" ? "불가시간 — 클릭 선택" : "가용시간 — 클릭 선택"}
+                                onDoubleClick={(e) => { e.stopPropagation(); const blk = selBlocks.find((x) => x.id === b.id); if (blk) setEditingBlock(blk); }}
+                                title={b.kind === "unavailable" ? "불가시간 — 클릭 선택 · 더블클릭 수정" : "가용시간 — 클릭 선택 · 더블클릭 수정"}
                                 className={`absolute left-0 right-0 ${selected ? "cursor-pointer" : "pointer-events-none"}`}
                                 style={
                                   b.kind === "unavailable"
@@ -971,6 +974,63 @@ export function ScheduleCalendar() {
           onCreateBlock={createBlock}
         />
       )}
+
+      {editingBlock && (
+        <BlockEditModal
+          block={editingBlock}
+          onClose={() => setEditingBlock(null)}
+          onSave={async (body) => { setEditingBlock(null); await createBlock(body); }}
+          onDelete={async () => { const id = editingBlock.id; setEditingBlock(null); await deleteBlock(id); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── 불가/가용 블록 수정 모달(더블클릭) ──
+function BlockEditModal({
+  block, onClose, onSave, onDelete,
+}: {
+  block: AvailabilityBlock;
+  onClose: () => void;
+  onSave: (body: AvailabilityUpsertBody) => void;
+  onDelete: () => void;
+}) {
+  const [kind, setKind] = useState<"available" | "unavailable">(block.kind);
+  const [weekday, setWeekday] = useState<number>(block.weekday);
+  const [start, setStart] = useState(block.startTime);
+  const [end, setEnd] = useState(block.endTime);
+  const valid = start < end;
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center" style={{ background: "rgba(0,0,0,.35)" }} onClick={onClose}>
+      <div className="card card-pad w-[380px] space-y-3" onClick={(e) => e.stopPropagation()}>
+        <div className="font-semibold">{kind === "unavailable" ? "불가시간" : "가용시간"} 수정</div>
+        <Field label="종류">
+          <select className="input" value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
+            <option value="unavailable">불가(차단)</option>
+            <option value="available">가용</option>
+          </select>
+        </Field>
+        <Field label="요일">
+          <select className="input" value={weekday} onChange={(e) => setWeekday(Number(e.target.value))}>
+            {WD.map((w, d) => <option key={d} value={d}>{w}</option>)}
+          </select>
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="시작"><input type="time" step={900} className="input" value={start} onChange={(e) => setStart(e.target.value)} /></Field>
+          <Field label="종료"><input type="time" step={900} className="input" value={end} onChange={(e) => setEnd(e.target.value)} /></Field>
+        </div>
+        <div className="flex justify-between gap-2 pt-1">
+          <button className="btn btn-sm" style={{ color: "var(--color-danger)" }} onClick={onDelete}>삭제</button>
+          <div className="flex gap-2">
+            <button className="btn" onClick={onClose}>취소</button>
+            <button className="btn btn-primary" disabled={!valid}
+              onClick={() => onSave({ id: block.id, ownerType: block.ownerType, ownerId: block.ownerId, kind, weekday, startTime: start, endTime: end })}>
+              저장
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -983,12 +1043,14 @@ function MonthGrid({
   colorOf,
   onPick,
   onPickDay,
+  onCreateDay,
 }: {
   anchor: string;
   rows: ScheduleRow[];
   colorOf: (r: ScheduleRow) => string;
   onPick: (r: ScheduleRow) => void;
   onPickDay: (date: string) => void;
+  onCreateDay: (date: string) => void;
 }) {
   const ym = anchor.slice(0, 7);
   const firstWd = weekdayOf(`${ym}-01`);
@@ -1022,7 +1084,13 @@ function MonthGrid({
       </div>
       <div className="grid grid-cols-7">
         {cells.map((date, idx) => (
-          <div key={idx} className="min-h-[104px] border-b border-r p-1.5" style={{ borderColor: "var(--color-line-muted)" }}>
+          <div
+            key={idx}
+            className={`min-h-[104px] border-b border-r p-1.5 ${date ? "cursor-pointer" : ""}`}
+            style={{ borderColor: "var(--color-line-muted)" }}
+            onDoubleClick={(e) => { if (date && (e.target as HTMLElement).closest("[data-evt]") == null) onCreateDay(date); }}
+            title={date ? "더블클릭으로 일정 추가" : undefined}
+          >
             {date && (
               <button
                 className={`text-[12px] mb-1 px-1 rounded hover:bg-canvas-subtle ${date === todayISO() ? "font-bold text-accent" : "text-fg-subtle"}`}
@@ -1036,7 +1104,9 @@ function MonthGrid({
               {(date ? (byDay.get(date) ?? []) : []).slice(0, 4).map((r) => (
                 <button
                   key={r.id}
+                  data-evt
                   onClick={() => onPick(r)}
+                  onDoubleClick={(e) => { e.stopPropagation(); onPick(r); }}
                   className="block w-full text-left rounded px-1.5 py-0.5 text-[11px] text-white truncate"
                   style={{ background: colorOf(r) }}
                   title={`${r.startTime ?? ""}–${r.endTime ?? ""} ${r.courseName} · ${r.instructorName}`}
@@ -1354,6 +1424,22 @@ function CreateModal({
   }
   const sessionValid = courseId && date && start < end;
 
+  // ── #2: 선택 시간대에 가용한 강사 안내(가용 강사 먼저) ──
+  const [blocks, setBlocks] = useState<AvailabilityBlock[]>([]);
+  useEffect(() => { api.availability.all().then(setBlocks).catch(() => setBlocks([])); }, []);
+  const instAvailable = useCallback((instructorId: number): boolean => {
+    const wd = weekdayOf(date);
+    const s = toMin(start), e = toMin(end);
+    const av = ownerWindows(blocks, "instructor", instructorId, "available").filter((w) => w.weekday === wd);
+    if (!av.length || !av.some((w) => w.start <= s && e <= w.end)) return false; // 가용 미선언/미포함 → 불가
+    const blocked = blocks.some((b) => b.kind === "unavailable" && b.ownerType === "instructor" && b.ownerId === instructorId && b.weekday === wd && s < toMin(b.endTime) && toMin(b.startTime) < e);
+    return !blocked;
+  }, [blocks, date, start, end]);
+  const sortedInstructors = useMemo(
+    () => [...resources.instructors].sort((a, b) => Number(instAvailable(b.id)) - Number(instAvailable(a.id))),
+    [resources.instructors, instAvailable],
+  );
+
   // ── 가용·불가 탭 ──
   const lockOwner = lockInstructorId != null;
   const [bType, setBType] = useState<"instructor" | "student" | "room">(lockOwner ? "instructor" : (defaultOwner?.type ?? "instructor"));
@@ -1381,10 +1467,12 @@ function CreateModal({
                 {myCourses.map((c) => <option key={c.id} value={c.id}>{c.name} · {c.subjectName}</option>)}
               </select>
             </Field>
-            <Field label="강사">
+            <Field label={`강사 ${instructorId && !instAvailable(Number(instructorId)) ? "· ⚠ 선택 시간에 불가" : ""}`}>
               {lockInstructorId == null ? (
                 <select className="input" value={instructorId} onChange={(e) => setInstructorId(e.target.value ? Number(e.target.value) : "")}>
-                  {resources.instructors.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
+                  {sortedInstructors.map((i) => (
+                    <option key={i.id} value={i.id}>{i.name} {instAvailable(i.id) ? "· 가용" : "· 불가"}</option>
+                  ))}
                 </select>
               ) : (
                 <input className="input" value={lockedInstructorName ?? "본인"} disabled readOnly />

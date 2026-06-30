@@ -1,10 +1,10 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { Badge, SectionCard, type Tone } from '@/components/ui';
 import { useTacoStore } from '@/lib/store';
 import { isAdmin } from '@/lib/roles';
 import { won } from '@/lib/format';
-import { api, type MeasureResult, type PayoutRow, type PayoutRowStatus } from '@/lib/api';
+import { api, type MeasureResult, type PayoutRow, type PayoutRowStatus, type PayoutLine } from '@/lib/api';
 
 const statusLabel: Record<PayoutRowStatus, string> = {
   pending: '승인대기', confirmed: '승인됨', paid: '지급완료', rejected: '반려',
@@ -19,6 +19,23 @@ type Conn = 'checking' | 'online' | 'offline';
 export function PayoutsView() {
   const role = useTacoStore((s) => s.currentRole);
   const admin = isAdmin(role);
+  // 정산 근거를 사람이 읽을 수 있게 — 세션→시각, 코스→과목, 코스→수강 학생 조인(스토어).
+  const classSessions = useTacoStore((s) => s.classSessions);
+  const courses = useTacoStore((s) => s.courses);
+  const subjects = useTacoStore((s) => s.subjects);
+  const enrollments = useTacoStore((s) => s.enrollments);
+  const students = useTacoStore((s) => s.students);
+  const lineDetail = useCallback((line: PayoutLine) => {
+    const ses = classSessions.find((s) => s.id === line.sessionId);
+    const course = courses.find((c) => c.id === line.courseId);
+    const subjectName = subjects.find((su) => su.id === course?.subjectId)?.name ?? '—';
+    const studentNames = enrollments
+      .filter((e) => e.courseId === line.courseId)
+      .map((e) => students.find((s) => s.id === e.studentId)?.name)
+      .filter(Boolean).join(', ') || '—';
+    return { startTime: ses?.startTime ?? '', subjectName, studentNames };
+  }, [classSessions, courses, subjects, enrollments, students]);
+  const [expanded, setExpanded] = useState<number | null>(null);
 
   const [conn, setConn] = useState<Conn>('checking');
   const [instructors, setInstructors] = useState<{ id: number; name: string }[]>([]);
@@ -171,22 +188,26 @@ export function PayoutsView() {
         >
           <table className="table">
             <thead>
-              <tr><th>날짜</th><th>코스</th><th className="text-right">시수</th><th className="text-right">시급</th><th className="text-right">페이</th></tr>
+              <tr><th>일시</th><th>과목</th><th>수업</th><th>학생</th><th className="text-right">시수</th><th className="text-right">페이</th></tr>
             </thead>
             <tbody>
-              {lines.map((r) => (
-                <tr key={r.sessionId}>
-                  <td className="mono">{r.sessionDate}</td>
-                  <td className="font-medium">{r.courseName}</td>
-                  <td className="text-right mono">{(r.durationMinutes / 60).toFixed(1)}h</td>
-                  <td className="text-right mono text-fg-muted">{won(r.hourlyRate)}</td>
-                  <td className="text-right mono">{won(r.amount)}</td>
-                </tr>
-              ))}
+              {lines.map((r) => {
+                const d = lineDetail(r);
+                return (
+                  <tr key={r.sessionId}>
+                    <td className="mono whitespace-nowrap">{r.sessionDate}{d.startTime ? ` ${d.startTime}` : ''}</td>
+                    <td className="text-fg-muted">{d.subjectName}</td>
+                    <td className="font-medium">{r.courseName}</td>
+                    <td className="text-fg-muted">{d.studentNames}</td>
+                    <td className="text-right mono">{(r.durationMinutes / 60).toFixed(1)}h</td>
+                    <td className="text-right mono">{won(r.amount)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={4} className="text-right text-[12px] text-fg-muted">소계{fCourse ? ' (필터)' : ''}</td>
+                <td colSpan={5} className="text-right text-[12px] text-fg-muted">소계{fCourse ? ' (필터)' : ''}</td>
                 <td className="text-right mono font-semibold">{won(subTotal)}</td>
               </tr>
             </tfoot>
@@ -230,8 +251,13 @@ export function PayoutsView() {
               <tr><td colSpan={6} className="p-4 text-[13px] text-fg-subtle">조건에 맞는 정산서가 없습니다.</td></tr>
             )}
             {filtered.map((p) => (
-              <tr key={p.id}>
-                <td className="font-medium">{instructorName(p.instructorId)}</td>
+              <Fragment key={p.id}>
+              <tr>
+                <td className="font-medium">
+                  <button className="hover:underline" onClick={() => setExpanded(expanded === p.id ? null : p.id)} title="정산 근거 보기">
+                    {expanded === p.id ? '▾' : '▸'} {instructorName(p.instructorId)}
+                  </button>
+                </td>
                 <td className="mono text-fg-muted">{p.periodStart} ~ {p.periodEnd}</td>
                 <td className="text-right mono">{hours(p.totalMinutes)} · {p.sessionCount}회</td>
                 <td className="text-right mono">
@@ -270,6 +296,38 @@ export function PayoutsView() {
                   )}
                 </td>
               </tr>
+              {expanded === p.id && (
+                <tr>
+                  <td colSpan={6} className="bg-canvas-subtle">
+                    <div className="p-2">
+                      <div className="text-[12px] text-fg-muted mb-1">정산 근거 — 언제·과목·학생별 내역 ({p.lines.length}건)</div>
+                      {p.lines.length === 0 ? (
+                        <div className="text-[12px] text-fg-subtle px-1 py-2">연결된 수업 내역이 없습니다.</div>
+                      ) : (
+                        <table className="table">
+                          <thead><tr><th>일시</th><th>과목</th><th>수업</th><th>학생</th><th className="text-right">시수</th><th className="text-right">페이</th></tr></thead>
+                          <tbody>
+                            {p.lines.map((l) => {
+                              const d = lineDetail(l);
+                              return (
+                                <tr key={l.sessionId}>
+                                  <td className="mono whitespace-nowrap">{l.sessionDate}{d.startTime ? ` ${d.startTime}` : ''}</td>
+                                  <td className="text-fg-muted">{d.subjectName}</td>
+                                  <td className="font-medium">{l.courseName}</td>
+                                  <td className="text-fg-muted">{d.studentNames}</td>
+                                  <td className="text-right mono">{(l.durationMinutes / 60).toFixed(1)}h</td>
+                                  <td className="text-right mono">{won(l.amount)}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
           </tbody>
         </table>
