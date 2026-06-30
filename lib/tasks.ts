@@ -115,13 +115,13 @@ function adminTasks(s: StoreSlice): TaskItem[] {
     });
   }
 
-  // ── 수업 보고서 — 승인 대기(작성완료·미승인) ──
+  // ── 수업 보고서 승인 대기(작성완료·미승인) — 승인은 관리자(승인센터) 책임이므로 /admin/approvals로 ──
   for (const r of s.sessionReports.filter((x) => (x.status === 'submitted' || x.approvalStatus === 'submitted') && x.approvalStatus !== 'approved')) {
     out.push({
       id: `report-approve-${r.id}`, group: 'report', tone: 'accent', counts: true,
       title: `수업 보고서 승인 대기 — ${sname(r.studentId)}`,
       detail: `${iname(r.instructorId)} · 승인 시 시수 집계`,
-      href: '/reports',
+      href: '/admin/approvals',
     });
   }
   return out;
