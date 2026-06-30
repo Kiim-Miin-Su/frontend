@@ -61,6 +61,18 @@ describe('detectConflicts', () => {
     expect(c.some((x) => x.type === 'double_book' && x.resource === 'room')).toBe(true);
   });
 
+  it('결강(canceled)·취소(no_show) 세션은 시간 점유에서 제외', () => {
+    const canceled = [
+      sess({ id: 200, instructorId: 1, roomId: 1, startTime: '16:00', endTime: '17:30', status: 'canceled' }),
+      sess({ id: 201, instructorId: 1, roomId: 1, startTime: '16:00', endTime: '17:30', status: 'no_show' }),
+    ];
+    const c = detectConflicts(
+      { sessionDate: '2026-06-29', startTime: '16:00', durationMinutes: 90, instructorId: 1, roomId: 1 },
+      { sessions: canceled },
+    );
+    expect(c).toEqual([]);
+  });
+
   it('이동(ignoreSessionId)하면 자기 자신과는 충돌 아님', () => {
     const c = detectConflicts(
       { sessionDate: '2026-06-29', startTime: '16:00', durationMinutes: 90, instructorId: 1, roomId: 1, ignoreSessionId: 100 },

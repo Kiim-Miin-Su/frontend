@@ -540,6 +540,7 @@ export const useTacoStore = create<TacoState>((set) => ({
       instructorId: input.instructorId,
       price: input.price,
       hourlyRate: input.hourlyRate,
+      color: input.color,
     };
     set((s) => {
       course.id = nextId(s.courses);
