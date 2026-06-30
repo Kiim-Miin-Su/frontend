@@ -46,7 +46,6 @@ export function detectConflicts(cand: ConflictCandidate, ctx: ConflictCtx): Conf
   // 1) 같은 날 기존 세션과의 이중예약(강사·강의실)
   for (const s of ctx.sessions) {
     if (s.id === cand.ignoreSessionId) continue;
-    if (s.status === 'canceled' || s.status === 'no_show') continue; // 결강/취소는 점유 아님
     if (s.sessionDate !== cand.sessionDate || !s.startTime) continue;
     const sEnd = s.endTime ?? addMinutes(s.startTime, s.durationMinutes);
     if (!overlaps(cStart, cEnd, s.startTime, sEnd)) continue;

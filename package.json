@@ -12,7 +12,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@kms545487/contracts": "github:Kiim-Miin-Su/contracts#main",
+    "@kms545487/contracts": "^0.1.6",
     "axios": "^1.18.1",
     "chart.js": "^4.5.1",
     "dotenv": "^17.4.2",

@@ -21,7 +21,7 @@ import type {
 export type ScheduleQuery = { from?: string; to?: string; instructorId?: number; roomId?: number; studentId?: number };
 export type ScheduleCreateBody = {
   courseId: number; instructorId?: number; roomId?: number; sessionDate: string;
-  startTime: string; endTime?: string; durationMinutes?: number; topic?: string; memo?: string; color?: string;
+  startTime: string; endTime?: string; durationMinutes?: number; topic?: string; memo?: string;
   seriesId?: number; status?: string; force?: boolean;
 };
 export type AvailabilityUpsertBody = {
@@ -30,7 +30,7 @@ export type AvailabilityUpsertBody = {
 };
 export type SchedulePatchBody = {
   sessionDate?: string; startTime?: string; endTime?: string; durationMinutes?: number;
-  roomId?: number; instructorId?: number; courseId?: number; status?: string; topic?: string; memo?: string; color?: string;
+  roomId?: number; instructorId?: number; courseId?: number; status?: string; topic?: string; memo?: string;
   // 반복 편집 범위(this=이 일정만 · this_and_following=이후 전부 · all=시리즈 전체). seriesId가 있을 때만 의미.
   scope?: "this" | "this_and_following" | "all"; force?: boolean;
 };
@@ -81,9 +81,6 @@ export const api = {
       http.patch<{ row: ScheduleRow; conflicts: Conflict[]; updated: number }>(`/schedule/${id}`, body).then((r) => r.data),
     conflicts: (body: ConflictCheckBody) =>
       http.post<Conflict[]>("/schedule/conflicts", body).then((r) => r.data),
-    // 세션 삭제
-    remove: (id: number) =>
-      http.delete<{ id: number; deleted: boolean }>(`/schedule/${id}`).then((r) => r.data),
   },
   rooms: {
     list: () => http.get<Room[]>("/rooms").then((r) => r.data),

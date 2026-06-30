@@ -26,10 +26,7 @@ export function CoursesView() {
             <tbody>
               {courses.map((c) => (
                 <tr key={c.id}>
-                  <td className="font-medium">
-                    {c.color && <span className="inline-block w-2.5 h-2.5 rounded-full mr-1.5 align-middle" style={{ background: c.color }} />}
-                    {c.name}
-                  </td>
+                  <td className="font-medium">{c.name}</td>
                   <td className="text-fg-muted">{subjectName(c.subjectId)}</td>
                   <td className="text-fg-muted">{instructorName(c.instructorId)}</td>
                   <td className="text-right mono">{won(c.price)}</td>
@@ -43,8 +40,6 @@ export function CoursesView() {
   );
 }
 
-const COURSE_PALETTE = ['#0969da', '#1a7f37', '#8250df', '#bf3989', '#9a6700', '#1b7c83'];
-
 function CourseForm() {
   const subjects = useTacoStore((s) => s.subjects);
   const instructors = useTacoStore((s) => s.instructors);
@@ -54,16 +49,15 @@ function CourseForm() {
   const [instructorId, setInstructorId] = useState('');
   const [price, setPrice] = useState('');
   const [hourlyRate, setHourlyRate] = useState('');
-  const [color, setColor] = useState<string>(COURSE_PALETTE[0]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !subjectId || !instructorId) return;
     addCourse({
       name: name.trim(), subjectId: Number(subjectId), instructorId: Number(instructorId),
-      price: Number(price) || 0, hourlyRate: Number(hourlyRate) || 0, color,
+      price: Number(price) || 0, hourlyRate: Number(hourlyRate) || 0,
     });
-    setName(''); setSubjectId(''); setInstructorId(''); setPrice(''); setHourlyRate(''); setColor(COURSE_PALETTE[0]);
+    setName(''); setSubjectId(''); setInstructorId(''); setPrice(''); setHourlyRate('');
   };
 
   return (
@@ -82,15 +76,6 @@ function CourseForm() {
           <option value="">선택</option>
           {instructors.map((i) => (<option key={i.id} value={i.id}>{i.name}</option>))}
         </select>
-      </Field>
-      <Field label="캘린더 색상 라벨">
-        <div className="flex items-center gap-1.5 h-9">
-          {COURSE_PALETTE.map((c) => (
-            <button key={c} type="button" onClick={() => setColor(c)} aria-label={c}
-              className="w-6 h-6 rounded-full"
-              style={{ background: c, outline: color === c ? '2px solid var(--color-fg)' : '1px solid var(--color-line)', outlineOffset: 1 }} />
-          ))}
-        </div>
       </Field>
       <div className="sm:col-span-2 flex justify-end"><button type="submit" className="btn btn-primary">코스 추가</button></div>
     </form>

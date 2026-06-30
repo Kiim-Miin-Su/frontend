@@ -25,14 +25,11 @@ const WD = ["일", "월", "화", "수", "목", "금", "토"];
 const PALETTE = ["#0969da", "#1a7f37", "#8250df", "#bf3989", "#9a6700", "#1b7c83"];
 const STATUS_LABEL: Record<string, string> = {
   scheduled: "예정",
-  held: "진행됨",
-  canceled: "결강",
-  no_show: "취소",
+  held: "진행",
+  canceled: "취소",
+  no_show: "노쇼",
   makeup: "보강",
 };
-// 시수 미측정·충돌 제외·회색 표시 대상(결강/취소)
-const CANCELED_GRAY = "#8c959f";
-const isCanceledStatus = (s?: string) => s === "canceled" || s === "no_show";
 
 const toMin = (t: string) => {
   const [h, m] = t.split(":").map(Number);
@@ -164,15 +161,13 @@ export function ScheduleCalendar() {
   // ── 색/라벨 ──
   const colorOf = useCallback(
     (r: ScheduleRow) =>
-      isCanceledStatus(r.status) // 결강·취소 → 회색(시수 미측정·충돌 제외 시각화)
-        ? CANCELED_GRAY
-        : colorBy === "subject"
-          ? (r.color ?? hashColor(r.subjectName))
-          : colorBy === "instructor"
-            ? PALETTE[r.instructorId % PALETTE.length]
-            : colorBy === "room"
-              ? (rooms.find((x) => x.id === r.roomId)?.color ?? hashColor(r.roomName ?? "—"))
-              : hashColor((r.studentNames ?? []).join(",") || "—"),
+      colorBy === "subject"
+        ? (r.color ?? hashColor(r.subjectName))
+        : colorBy === "instructor"
+          ? PALETTE[r.instructorId % PALETTE.length]
+          : colorBy === "room"
+            ? (rooms.find((x) => x.id === r.roomId)?.color ?? hashColor(r.roomName ?? "—"))
+            : hashColor((r.studentNames ?? []).join(",") || "—"),
     [colorBy, rooms],
   );
   const labelOf = useCallback(
@@ -339,21 +334,6 @@ export function ScheduleCalendar() {
           await load();
         }
       } else setMsg("스케줄 추가 실패");
-    }
-  }
-
-  // 세션 삭제(상세 모달). 확인 후 DELETE → 재조회.
-  async function deleteSession(id: number) {
-    if (!confirm("이 스케줄을 삭제할까요? 되돌릴 수 없습니다.")) return;
-    try {
-      await api.schedule.remove(id);
-      setEditing(null);
-      setSelEvent(null);
-      setMsg("스케줄을 삭제했습니다.");
-      await load();
-    } catch {
-      setMsg("삭제 실패");
-      await load();
     }
   }
 
@@ -779,9 +759,7 @@ export function ScheduleCalendar() {
                                   {selEvent === r.id && (
                                     <div onPointerDown={(e) => onResizeDown(e, r, "top")} className="absolute left-1/2 -translate-x-1/2 top-0 w-6 h-2 rounded-b bg-white/90 cursor-ns-resize" />
                                   )}
-                                  <div className={`font-semibold truncate ${isCanceledStatus(r.status) ? "line-through opacity-90" : ""}`}>
-                                    {isCanceledStatus(r.status) ? `[${STATUS_LABEL[r.status]}] ` : ""}{labelOf(r)}
-                                  </div>
+                                  <div className="font-semibold truncate">{labelOf(r)}</div>
                                   <div className="opacity-90 mono truncate">
                                     {fromMin(s)}–{fromMin(en)}
                                   </div>
@@ -820,7 +798,6 @@ export function ScheduleCalendar() {
           rooms={rooms}
           colorOf={colorOf}
           onClose={() => setEditing(null)}
-          onDelete={() => deleteSession(editing.id)}
           onSave={async (patch) => {
             setEditing(null);
             await applyPatch(editing.id, patch);
@@ -944,24 +921,6 @@ function MonthGrid({
   );
 }
 
-// ── 색상 라벨 선택 (스와치) ──
-function ColorPicker({ value, onChange }: { value?: string; onChange: (c: string) => void }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      {PALETTE.map((c) => (
-        <button
-          key={c}
-          type="button"
-          onClick={() => onChange(c)}
-          className="w-6 h-6 rounded-full transition"
-          style={{ background: c, outline: value === c ? "2px solid var(--color-fg)" : "1px solid var(--color-line)", outlineOffset: 1 }}
-          aria-label={c}
-        />
-      ))}
-    </div>
-  );
-}
-
 // ── 상세 + 편집 모달 ──
 function DetailModal({
   row,
@@ -969,14 +928,12 @@ function DetailModal({
   colorOf,
   onClose,
   onSave,
-  onDelete,
 }: {
   row: ScheduleRow;
   rooms: Room[];
   colorOf: (r: ScheduleRow) => string;
   onClose: () => void;
   onSave: (patch: SchedulePatchBody) => void;
-  onDelete: () => void;
 }) {
   const [mode, setMode] = useState<"detail" | "edit">("detail");
   const [date, setDate] = useState(row.sessionDate);
@@ -985,7 +942,6 @@ function DetailModal({
   const [roomId, setRoomId] = useState<number | "">(row.roomId ?? "");
   const [status, setStatus] = useState(row.status);
   const [memo, setMemo] = useState(row.memo ?? "");
-  const [color, setColor] = useState<string | undefined>(row.color);
   const [scope, setScope] = useState<"this" | "this_and_following" | "all">("this");
   const isSeries = row.seriesId != null;
 
@@ -1075,13 +1031,10 @@ function DetailModal({
               <select className="input" value={status} onChange={(e) => setStatus(e.target.value as ScheduleRow["status"])}>
                 {Object.keys(STATUS_LABEL).map((s) => (
                   <option key={s} value={s}>
-                    {STATUS_LABEL[s]}{s === "held" ? " (시수 측정)" : isCanceledStatus(s) ? " (시수 미측정·이월)" : ""}
+                    {STATUS_LABEL[s]}
                   </option>
                 ))}
               </select>
-            </Field>
-            <Field label="색상">
-              <ColorPicker value={color} onChange={setColor} />
             </Field>
             <Field label="메모">
               <textarea className="input min-h-[64px] py-1.5" rows={3} placeholder="자유 메모 (학생 특이사항·준비물 등)"
@@ -1096,32 +1049,26 @@ function DetailModal({
                 </select>
               </Field>
             )}
-            <div className="flex justify-between gap-2 pt-1">
-              <button className="btn btn-sm" style={{ color: "var(--color-danger)" }} onClick={onDelete}>
-                삭제
+            <div className="flex justify-end gap-2 pt-1">
+              <button className="btn" onClick={() => setMode("detail")}>
+                취소
               </button>
-              <div className="flex gap-2">
-                <button className="btn" onClick={() => setMode("detail")}>
-                  취소
-                </button>
-                <button
-                  className="btn btn-primary"
-                  onClick={() =>
-                    onSave({
-                      sessionDate: date,
-                      startTime: start,
-                      endTime: end,
-                      roomId: roomId || undefined,
-                      status,
-                      memo,
-                      color,
-                      scope: isSeries ? scope : undefined,
-                    })
-                  }
-                >
-                  저장
-                </button>
-              </div>
+              <button
+                className="btn btn-primary"
+                onClick={() =>
+                  onSave({
+                    sessionDate: date,
+                    startTime: start,
+                    endTime: end,
+                    roomId: roomId || undefined,
+                    status,
+                    memo,
+                    scope: isSeries ? scope : undefined,
+                  })
+                }
+              >
+                저장
+              </button>
             </div>
           </>
         )}
@@ -1200,9 +1147,6 @@ function CreateModal({
   const courseDur = course?.durationMinutes ?? 90;
   const [end, setEnd] = useState(fromMin(toMin("16:00") + (myCourses[0]?.durationMinutes ?? 90)));
   const [memo, setMemo] = useState("");
-  // 색상 라벨: 생성 시 기본값은 개설 때 고른 코스 색(미지정 시 비움 → 백엔드가 코스/과목 색 폴백)
-  const [color, setColor] = useState<string | undefined>(myCourses[0]?.color);
-  const [status, setStatus] = useState<string>("scheduled");
   const lockedInstructorName = lockInstructorId != null ? resources.instructors.find((i) => i.id === lockInstructorId)?.name : undefined;
   function pickCourse(id: number) {
     setCourseId(id);
@@ -1210,7 +1154,6 @@ function CreateModal({
     if (c) {
       if (lockInstructorId == null) setInstructorId(c.instructorId);
       setEnd(fromMin(toMin(start) + c.durationMinutes)); // 코스 진행시간으로 종료 자동
-      setColor(c.color); // 코스 색을 기본 색으로
     }
   }
   function changeStart(v: string) {
@@ -1266,23 +1209,11 @@ function CreateModal({
               <Field label="시작"><input type="time" step={900} className="input" value={start} onChange={(e) => changeStart(e.target.value)} /></Field>
               <Field label={`종료 (진행 ${courseDur}분)`}><input type="time" step={900} className="input" value={end} onChange={(e) => setEnd(e.target.value)} /></Field>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="상태">
-                <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}>
-                  {Object.keys(STATUS_LABEL).map((s) => (
-                    <option key={s} value={s}>
-                      {STATUS_LABEL[s]}{s === "held" ? " (시수 측정)" : isCanceledStatus(s) ? " (시수 미측정)" : ""}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="색상"><ColorPicker value={color} onChange={setColor} /></Field>
-            </div>
             <Field label="메모"><textarea className="input min-h-[52px] py-1.5" rows={2} placeholder="선택 — 메모" value={memo} onChange={(e) => setMemo(e.target.value)} /></Field>
             <div className="flex justify-end gap-2 pt-1">
               <button className="btn" onClick={onClose}>취소</button>
               <button className="btn btn-primary" disabled={!sessionValid}
-                onClick={() => onCreate({ courseId, instructorId: lockInstructorId ?? (instructorId || undefined), roomId: roomId || undefined, sessionDate: date, startTime: start, endTime: end, memo: memo || undefined, color, status })}>
+                onClick={() => onCreate({ courseId, instructorId: lockInstructorId ?? (instructorId || undefined), roomId: roomId || undefined, sessionDate: date, startTime: start, endTime: end, memo: memo || undefined })}>
                 수업 추가
               </button>
             </div>
