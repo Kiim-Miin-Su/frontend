@@ -124,12 +124,10 @@ export const expenses: Expense[] = [
   { id: 5, category: 'meal', title: '강사 회식', amount: 180000, spentAt: '2026-06-20', status: 'requested' },
 ];
 
+// 백엔드 payouts 시드(강사2 지급완료 1건)와 정합 — 배지가 실제 정산 페이지(백엔드)와 어긋나지
+// 않도록 paid 1건만 둔다. 미정산 데모는 PayoutsView에서 백엔드로 생성·승인·지급 시연. (단일 소스화는 TBO-07)
 export const instructorPayouts: InstructorPayout[] = [
-  { id: 1, instructorId: 1, periodStart: '2026-06-01', periodEnd: '2026-06-15', amount: 1850000, status: 'paid' },
-  // 승인 대기(관리자 To-do: 승인 필요)
-  { id: 2, instructorId: 2, periodStart: '2026-06-16', periodEnd: '2026-06-30', sessionCount: 8, totalMinutes: 720, amount: 1320000, status: 'pending' },
-  // 승인됨·지급 대기(관리자 To-do: 지급 필요)
-  { id: 3, instructorId: 1, periodStart: '2026-06-16', periodEnd: '2026-06-30', sessionCount: 7, totalMinutes: 660, amount: 1200000, status: 'confirmed' },
+  { id: 1, instructorId: 2, periodStart: '2026-06-16', periodEnd: '2026-06-30', sessionCount: 8, totalMinutes: 720, amount: 1320000, status: 'paid' },
 ];
 
 // ── 상담 (counsel_form / counsel_rounds) ──

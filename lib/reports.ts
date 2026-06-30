@@ -35,6 +35,23 @@ export function pendingReportSessions(s: ReportSlice, instructorId?: number): Cl
   );
 }
 
+// 미작성 세션 수(작성해야 할 "수업" 수).
 export function pendingReportCount(s: ReportSlice, instructorId?: number): number {
   return pendingReportSessions(s, instructorId).length;
+}
+
+// 미작성 "보고서" 건수 = held 세션 × 수강생 중 (리포트 없음 or draft)인 (세션·학생) 쌍의 수.
+// 알림 배지는 "작성해야 할 보고서 건당 하나"가 직관적이므로 이 값을 사용.
+export function pendingReportItemCount(s: ReportSlice, instructorId?: number): number {
+  let n = 0;
+  for (const ses of s.classSessions) {
+    if (instructorId != null && ses.instructorId !== instructorId) continue;
+    if (ses.status !== 'held') continue;
+    const roster = s.enrollments.filter((e) => e.courseId === ses.courseId).map((e) => e.studentId);
+    for (const stId of roster) {
+      const r = s.sessionReports.find((x) => x.sessionId === ses.id && x.studentId === stId);
+      if (!r || r.status === 'draft') n += 1;
+    }
+  }
+  return n;
 }

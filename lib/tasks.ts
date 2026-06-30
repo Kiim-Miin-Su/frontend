@@ -15,7 +15,7 @@ import type {
 } from '@/types';
 import type { Tone } from '@/components/ui';
 import { isAdmin } from '@/lib/roles';
-import { pendingReportSessions, pendingReportCount, type ReportSlice } from '@/lib/reports';
+import { pendingReportSessions, pendingReportItemCount, type ReportSlice } from '@/lib/reports';
 
 // 회계상 분리: pay(강사 페이=출금) / expense(지출=출금) / payment(결제·수납=입금) / counsel(상담) / report·class(강사)
 export type TaskGroup = 'pay' | 'expense' | 'payment' | 'counsel' | 'report' | 'class';
@@ -174,19 +174,19 @@ export function navBadges(s: StoreSlice, role: AccountRole = s.currentRole): Rec
   const out: Record<string, number> = {};
   const put = (nav: string, n: number) => { if (n > 0) out[nav] = n; };
 
-  // 강사: 본인 수업보고서 미작성만
+  // 강사: 본인 수업보고서 미작성(보고서 건수)만
   if (role === 'instructor') {
-    put('/reports', pendingReportCount(s, DEMO_INSTRUCTOR_ID));
+    put('/reports', pendingReportItemCount(s, DEMO_INSTRUCTOR_ID));
     return out;
   }
   if (!isAdmin(role)) return out; // 학생/학부모 등은 알림 없음
 
   // 관리자/매니저
-  put('/counsel', s.counselForms.filter((c) => c.status === 'requested' && !c.nextContactAt).length); // 다음 만남 날짜 미정
+  put('/counsel', s.counselForms.filter((c) => c.status !== 'dropped' && !c.nextContactAt).length); // 다음 만남 날짜 미정(이탈 제외)
   put('/payments', s.payments.filter((p) => p.status === 'pending').length); // 미수(미납)
   put('/payouts', s.instructorPayouts.filter((p) => p.status === 'pending' || p.status === 'confirmed').length); // 미정산(미지급)
   put('/expenses', s.expenses.filter((e) => e.status === 'requested').length); // 승인 대기
-  put('/reports', pendingReportCount(s)); // 미작성(전체)
+  put('/reports', pendingReportItemCount(s)); // 미작성 보고서 건수(전체)
 
   // 관리자(승인 센터): 미승인 모두 = 보고서 승인대기 + 지출 승인대기 + 강사페이 승인대기 (가입 승인은 백엔드 계정)
   const reportApprove = s.sessionReports.filter((r) => (r.status === 'submitted' || r.approvalStatus === 'submitted') && r.approvalStatus !== 'approved').length;

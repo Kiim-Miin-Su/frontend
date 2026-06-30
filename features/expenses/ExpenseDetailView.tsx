@@ -1,12 +1,20 @@
 'use client';
+import { useState } from 'react';
 import Link from 'next/link';
 import { Badge, SectionCard } from '@/components/ui';
 import { useTacoStore } from '@/lib/store';
+import { isAdmin } from '@/lib/roles';
 import { won } from '@/lib/format';
+import { ReasonModal } from '@/components/ReasonModal';
 import { categoryLabel, categoryTone, approvalLabel, approvalTone } from './labels';
 
 export function ExpenseDetailView({ expenseId }: { expenseId: number }) {
   const expense = useTacoStore((s) => s.expenses.find((e) => e.id === expenseId));
+  const admin = isAdmin(useTacoStore((s) => s.currentRole));
+  const approveExpense = useTacoStore((s) => s.approveExpense);
+  const rejectExpense = useTacoStore((s) => s.rejectExpense);
+  const rejectReasons = useTacoStore((s) => s.expenseRejectReasons);
+  const [modal, setModal] = useState<'reject' | 'viewReason' | null>(null);
 
   if (!expense) {
     return (
@@ -35,6 +43,18 @@ export function ExpenseDetailView({ expenseId }: { expenseId: number }) {
           <Badge tone={approvalTone[expense.status]}>{approvalLabel[expense.status]}</Badge>
         </div>
       </div>
+
+      {/* 관리자: 그 자리에서 승인/반려 (관리자 탭은 몰아보기용) */}
+      {admin && expense.status === 'requested' && (
+        <div className="flex gap-2">
+          <button className="btn btn-primary" onClick={() => approveExpense(expense.id)}>승인</button>
+          <button className="btn btn-danger" onClick={() => setModal('reject')}>반려</button>
+        </div>
+      )}
+      {expense.status === 'rejected' && (
+        <button className="text-[13px] text-danger hover:underline" onClick={() => setModal('viewReason')}>반려 사유 보기</button>
+      )}
+
       <SectionCard title="지출 상세">
         <div className="divide-y" style={{ borderColor: 'var(--color-line-muted)' }}>
           {rows.map(([k, v]) => (
@@ -52,6 +72,14 @@ export function ExpenseDetailView({ expenseId }: { expenseId: number }) {
           </div>
         )}
       </SectionCard>
+
+      {modal === 'reject' && (
+        <ReasonModal mode="input" title="지출 반려" onClose={() => setModal(null)}
+          onSubmit={(reason) => { rejectExpense(expense.id, reason); setModal(null); }} />
+      )}
+      {modal === 'viewReason' && (
+        <ReasonModal mode="view" title="지출 반려 사유" initial={rejectReasons[expense.id] ?? ''} onClose={() => setModal(null)} />
+      )}
     </div>
   );
 }
