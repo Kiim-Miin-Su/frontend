@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { ScheduleRow, Room, Conflict, ScheduleResources, ScheduleResource, AvailabilityBlock } from "@/types";
-import { api, type SchedulePatchBody, type ScheduleCreateBody } from "@/lib/api";
+import { api, type SchedulePatchBody, type ScheduleCreateBody, type AvailabilityUpsertBody } from "@/lib/api";
 import { weekDates, weekdayOf, layoutLanes, teachingHours, toMin as toMinD } from "@/lib/domain/schedule";
 import { exportScheduleXlsx, exportNodeAsImage } from "@/lib/export";
 import { useTacoStore } from "@/lib/store";
@@ -221,22 +221,90 @@ export function ScheduleCalendar() {
   const rowsOfColumn = (c: { date: string; roomId?: number }) =>
     filtered.filter((r) => r.sessionDate === c.date && (c.roomId == null || r.roomId === c.roomId));
 
-  // 불가시간(Block) 밴드 — 선택 자원 기준. week=요일 매칭 모든 컬럼, day=룸이면 해당 컬럼만/그 외 전체.
-  const bandsOfColumn = (c: { date: string; roomId?: number }): { top: number; h: number }[] => {
+  // 가용/불가(Block) 밴드 — 선택 자원 기준. week=요일 매칭 모든 컬럼, day=룸이면 해당 컬럼만/그 외 전체.
+  const bandsOfColumn = (c: { date: string; roomId?: number }): { id: number; kind: string; startMin: number; endMin: number; top: number; h: number }[] => {
     if (!selBlocks.length) return [];
     const wd = weekdayOf(c.date);
     return selBlocks
       .filter(
-        (b) =>
-          b.kind === "unavailable" &&
-          b.weekday === wd &&
-          (selected?.type !== "room" || c.roomId == null || c.roomId === selected.id),
+        (b) => b.weekday === wd && (selected?.type !== "room" || c.roomId == null || c.roomId === selected.id),
       )
       .map((b) => {
         const s = clampMin(toMinD(b.startTime)),
           e = clampMin(toMinD(b.endTime));
-        return { top: ((s - GRID_MIN) / 60) * HOUR_H, h: Math.max(6, ((e - s) / 60) * HOUR_H) };
+        return { id: b.id, kind: b.kind, startMin: s, endMin: e, top: ((s - GRID_MIN) / 60) * HOUR_H, h: Math.max(6, ((e - s) / 60) * HOUR_H) };
       });
+  };
+
+  // ── 가용/불가(Block) — 밴드 표시 + 클릭 삭제. 생성은 "스케줄 추가" 모달의 '가용·불가' 탭에서. ──
+  const reloadSelBlocks = useCallback(() => {
+    if (selected) api.availability.list(selected.type, selected.id).then(setSelBlocks).catch(() => {});
+  }, [selected]);
+
+  // 가용/불가 블록 생성(모달에서 호출)
+  async function createBlock(body: AvailabilityUpsertBody) {
+    try {
+      await api.availability.upsert(body);
+      setCreating(null);
+      if (selected && selected.type === body.ownerType && selected.id === body.ownerId) reloadSelBlocks();
+    } catch {
+      setMsg("가용/불가 저장 실패");
+    }
+  }
+  async function deleteBlock(id: number) {
+    if (!confirm("이 시간 블록을 삭제할까요?")) return;
+    try { await api.availability.remove(id); reloadSelBlocks(); } catch { setMsg("삭제 실패"); }
+  }
+
+  // ── 드래그 편집: 빈 영역 드래그=불가 생성, 밴드 끝 드래그=시작/끝 리사이즈 ──
+  const [blockMode, setBlockMode] = useState(false);
+  const [bDraft, setBDraft] = useState<{ colKey: string; start: number; end: number; kind: string } | null>(null);
+  const bDragRef = useRef<{
+    colKey: string; date: string; kind: AvailabilityBlock["kind"]; id?: number;
+    mode: "new" | "resize"; edge?: "top" | "bottom";
+    topPx?: number; startClientY?: number; origStart?: number; origEnd?: number;
+    start: number; end: number;
+  } | null>(null);
+
+  const bMove = (e: PointerEvent) => {
+    const d = bDragRef.current; if (!d) return;
+    if (d.mode === "new") {
+      const m = clampMin(snap(GRID_MIN + ((e.clientY - (d.topPx ?? 0)) / HOUR_H) * 60));
+      d.end = Math.max(d.start + SNAP, m);
+    } else {
+      const delta = snap(((e.clientY - (d.startClientY ?? 0)) / HOUR_H) * 60);
+      if (d.edge === "top") d.start = Math.min((d.origEnd ?? 0) - SNAP, clampMin((d.origStart ?? 0) + delta));
+      else d.end = Math.max((d.origStart ?? 0) + SNAP, clampMin((d.origEnd ?? 0) + delta));
+    }
+    setBDraft({ colKey: d.colKey, start: d.start, end: d.end, kind: d.kind });
+  };
+  const bUp = () => {
+    window.removeEventListener("pointermove", bMove);
+    const d = bDragRef.current; bDragRef.current = null; setBDraft(null);
+    if (!d || !selected || d.end <= d.start) return;
+    createBlock({
+      id: d.id, ownerType: selected.type, ownerId: selected.id, kind: d.kind,
+      weekday: weekdayOf(d.date), startTime: fromMin(d.start), endTime: fromMin(d.end),
+    });
+  };
+  const bDownNew = (e: React.PointerEvent, c: { key: string; date: string }) => {
+    if (!blockMode || !selected || e.target !== e.currentTarget) return;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const s = clampMin(snap(GRID_MIN + ((e.clientY - rect.top) / HOUR_H) * 60));
+    bDragRef.current = { colKey: c.key, date: c.date, kind: "unavailable", mode: "new", topPx: rect.top, start: s, end: s + SNAP };
+    setBDraft({ colKey: c.key, start: s, end: s + SNAP, kind: "unavailable" });
+    window.addEventListener("pointermove", bMove);
+    window.addEventListener("pointerup", bUp, { once: true });
+  };
+  const bDownResize = (e: React.PointerEvent, c: { key: string; date: string }, b: { id: number; kind: string; startMin: number; endMin: number }, edge: "top" | "bottom") => {
+    e.stopPropagation();
+    bDragRef.current = {
+      colKey: c.key, date: c.date, kind: b.kind as AvailabilityBlock["kind"], id: b.id, mode: "resize", edge,
+      startClientY: e.clientY, origStart: b.startMin, origEnd: b.endMin, start: b.startMin, end: b.endMin,
+    };
+    setBDraft({ colKey: c.key, start: b.startMin, end: b.endMin, kind: b.kind });
+    window.addEventListener("pointermove", bMove);
+    window.addEventListener("pointerup", bUp, { once: true });
   };
 
   // ── PATCH 적용(충돌 시 확인 후 force) ──
@@ -452,6 +520,15 @@ export function ScheduleCalendar() {
               가용 · 추천
             </button>
           )}
+          {selected && isGrid && (
+            <button
+              className={`btn btn-sm ${blockMode ? "btn-primary" : ""}`}
+              onClick={() => setBlockMode((v) => !v)}
+              title="드래그=불가 생성 · 밴드 끝 드래그=시간 조절 · 밴드 클릭=삭제"
+            >
+              {blockMode ? "불가시간 편집 ✓" : "불가시간 편집"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -488,15 +565,19 @@ export function ScheduleCalendar() {
                   <option value="student">학생</option>
                 </select>
               </label>
-              {selBlocks.some((b) => b.kind === "unavailable") && (
-                <span className="text-[12px] text-fg-subtle inline-flex items-center gap-1.5">
-                  <span
-                    className="inline-block w-3 h-3 rounded-sm"
-                    style={{ background: "var(--color-neutral-subtle)", border: "1px solid var(--color-line)" }}
-                  />{" "}
-                  불가시간
+              {selected && selBlocks.length > 0 && (
+                <span className="text-[12px] text-fg-subtle inline-flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1">
+                    <span className="inline-block w-3 h-3 rounded-sm" style={{ background: "rgba(26,127,55,.18)", borderLeft: "2px solid var(--color-success)" }} /> 가용
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="inline-block w-3 h-3 rounded-sm" style={{ background: "repeating-linear-gradient(45deg, rgba(110,118,129,.18) 0 3px, rgba(110,118,129,.3) 3px 6px)" }} /> 불가
+                  </span>
                 </span>
               )}
+              {blockMode
+                ? <span className="text-[12px] text-accent">드래그=불가 생성 · 밴드 끝 드래그=시간 조절</span>
+                : selected && selBlocks.length > 0 && <span className="text-[12px] text-fg-subtle">밴드 클릭=삭제 · ‘불가시간 편집’으로 드래그 생성/조절</span>}
               {anyFilter ? (
                 <button className="btn btn-sm" onClick={clearFilters}>
                   필터 초기화
@@ -590,20 +671,45 @@ export function ScheduleCalendar() {
                             }}
                             onDragOver={(e) => e.preventDefault()}
                             onDrop={(e) => onColumnDrop(e, c)}
+                            onPointerDown={(e) => bDownNew(e, c)}
                           >
-                            {/* 불가시간 밴드 */}
-                            {bands.map((b, i) => (
+                            {/* 가용(초록)/불가(회색) 밴드 — 클릭 삭제 / 편집모드에서 끝 드래그로 시간 조절 */}
+                            {bands.map((b) => (
                               <div
-                                key={`b${i}`}
-                                className="absolute left-0 right-0 pointer-events-none"
-                                style={{
-                                  top: b.top,
-                                  height: b.h,
-                                  background:
-                                    "repeating-linear-gradient(45deg, rgba(110,118,129,.14) 0 6px, rgba(110,118,129,.24) 6px 12px)",
-                                }}
-                              />
+                                key={`b${b.id}`}
+                                onClick={(e) => { if (!blockMode && selected) { e.stopPropagation(); deleteBlock(b.id); } }}
+                                title={blockMode ? "끝을 끌어 시간 조절" : (selected ? "클릭 삭제" : "")}
+                                className={`absolute left-0 right-0 ${selected && !blockMode ? "cursor-pointer" : ""} ${blockMode ? "" : "pointer-events-none"}`}
+                                style={
+                                  b.kind === "unavailable"
+                                    ? {
+                                        top: b.top, height: b.h,
+                                        background:
+                                          "repeating-linear-gradient(45deg, rgba(110,118,129,.16) 0 6px, rgba(110,118,129,.28) 6px 12px)",
+                                      }
+                                    : {
+                                        top: b.top, height: b.h,
+                                        background: "rgba(26,127,55,.10)",
+                                        borderLeft: "2px solid var(--color-success)",
+                                      }
+                                }
+                              >
+                                {blockMode && (
+                                  <>
+                                    <div onPointerDown={(e) => bDownResize(e, c, b, "top")} className="absolute left-0 right-0 top-0 h-2 cursor-ns-resize" style={{ background: "rgba(110,118,129,.4)" }} />
+                                    <div onPointerDown={(e) => bDownResize(e, c, b, "bottom")} className="absolute left-0 right-0 bottom-0 h-2 cursor-ns-resize" style={{ background: "rgba(110,118,129,.4)" }} />
+                                  </>
+                                )}
+                              </div>
                             ))}
+                            {/* 드래그 중 미리보기 밴드 */}
+                            {bDraft && bDraft.colKey === c.key && (
+                              <div className="absolute left-0 right-0 pointer-events-none" style={{
+                                top: ((bDraft.start - GRID_MIN) / 60) * HOUR_H,
+                                height: Math.max(2, ((bDraft.end - bDraft.start) / 60) * HOUR_H),
+                                background: "rgba(110,118,129,.30)", border: "1px dashed var(--color-fg-subtle)",
+                              }} />
+                            )}
                             {/* 현재 시각 인디케이터 */}
                             {showNow && isToday && (
                               <div className="absolute left-0 right-0 z-20 pointer-events-none" style={{ top: nowTop }}>
@@ -727,8 +833,10 @@ export function ScheduleCalendar() {
           rooms={rooms}
           defaultDate={creating.date}
           lockInstructorId={isInstructor ? myInstructorId : undefined}
+          defaultOwner={selected}
           onClose={() => setCreating(null)}
           onCreate={createSession}
+          onCreateBlock={createBlock}
         />
       )}
     </div>
@@ -1010,17 +1118,23 @@ function CreateModal({
   rooms,
   defaultDate,
   lockInstructorId,
+  defaultOwner,
   onClose,
   onCreate,
+  onCreateBlock,
 }: {
   resources: ScheduleResources;
   rooms: Room[];
   defaultDate: string;
   lockInstructorId?: number; // 강사 본인만 추가 가능할 때 — 본인 ID로 고정
+  defaultOwner?: ScheduleResource | null;
   onClose: () => void;
   onCreate: (body: ScheduleCreateBody) => void;
+  onCreateBlock: (body: AvailabilityUpsertBody) => void;
 }) {
-  // 강사 잠금 시 본인 코스만 노출
+  const [tab, setTab] = useState<"session" | "block">("session");
+
+  // ── 수업 탭 ──
   const myCourses = lockInstructorId != null ? resources.courses.filter((c) => c.instructorId === lockInstructorId) : resources.courses;
   const [courseId, setCourseId] = useState<number>(myCourses[0]?.id ?? 0);
   const course = resources.courses.find((c) => c.id === courseId);
@@ -1030,8 +1144,6 @@ function CreateModal({
   const [start, setStart] = useState("16:00");
   const [end, setEnd] = useState("17:30");
   const lockedInstructorName = lockInstructorId != null ? resources.instructors.find((i) => i.id === lockInstructorId)?.name : undefined;
-
-  // 코스 변경 시 기본 강사 동기화(잠금 시엔 고정)
   function pickCourse(id: number) {
     setCourseId(id);
     if (lockInstructorId == null) {
@@ -1039,82 +1151,108 @@ function CreateModal({
       if (c) setInstructorId(c.instructorId);
     }
   }
-  const valid = courseId && date && start < end;
+  const sessionValid = courseId && date && start < end;
+
+  // ── 가용·불가 탭 ──
+  const lockOwner = lockInstructorId != null;
+  const [bType, setBType] = useState<"instructor" | "student" | "room">(lockOwner ? "instructor" : (defaultOwner?.type ?? "instructor"));
+  const [bId, setBId] = useState<number | "">(lockOwner ? lockInstructorId! : (defaultOwner?.id ?? ""));
+  const [bKind, setBKind] = useState<"available" | "unavailable">("unavailable");
+  const [bWeekday, setBWeekday] = useState<number>(weekdayOf(defaultDate));
+  const [bStart, setBStart] = useState("12:00");
+  const [bEnd, setBEnd] = useState("13:00");
+  const ownerList = bType === "instructor" ? resources.instructors : bType === "student" ? resources.students : rooms.map((r) => ({ id: r.id, name: r.name }));
+  const blockValid = bId !== "" && bStart < bEnd;
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center" style={{ background: "rgba(0,0,0,.35)" }} onClick={onClose}>
       <div className="card card-pad w-[440px] space-y-3" onClick={(e) => e.stopPropagation()}>
-        <div className="font-semibold">스케줄 추가{lockedInstructorName ? ` · ${lockedInstructorName} (내 수업)` : ""}</div>
-        <Field label="코스">
-          <select className="input" value={courseId} onChange={(e) => pickCourse(Number(e.target.value))}>
-            {myCourses.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} · {c.subjectName}
-              </option>
-            ))}
-          </select>
-        </Field>
-        {lockInstructorId == null ? (
-          <Field label="강사">
-            <select
-              className="input"
-              value={instructorId}
-              onChange={(e) => setInstructorId(e.target.value ? Number(e.target.value) : "")}
-            >
-              {resources.instructors.map((i) => (
-                <option key={i.id} value={i.id}>
-                  {i.name}
-                </option>
-              ))}
-            </select>
-          </Field>
+        <div className="flex rounded-md overflow-hidden border" style={{ borderColor: "var(--color-line)" }}>
+          <button className={`btn btn-sm flex-1 rounded-none border-0 ${tab === "session" ? "badge-accent" : ""}`} onClick={() => setTab("session")}>수업</button>
+          <button className={`btn btn-sm flex-1 rounded-none border-0 ${tab === "block" ? "badge-accent" : ""}`} onClick={() => setTab("block")}>가용 · 불가</button>
+        </div>
+
+        {tab === "session" ? (
+          <>
+            {lockedInstructorName && <div className="text-[12px] text-fg-muted">{lockedInstructorName} (내 수업)</div>}
+            <Field label="코스">
+              <select className="input" value={courseId} onChange={(e) => pickCourse(Number(e.target.value))}>
+                {myCourses.map((c) => <option key={c.id} value={c.id}>{c.name} · {c.subjectName}</option>)}
+              </select>
+            </Field>
+            <Field label="강사">
+              {lockInstructorId == null ? (
+                <select className="input" value={instructorId} onChange={(e) => setInstructorId(e.target.value ? Number(e.target.value) : "")}>
+                  {resources.instructors.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
+                </select>
+              ) : (
+                <input className="input" value={lockedInstructorName ?? "본인"} disabled readOnly />
+              )}
+            </Field>
+            <Field label="강의실">
+              <select className="input" value={roomId} onChange={(e) => setRoomId(e.target.value ? Number(e.target.value) : "")}>
+                <option value="">미지정</option>
+                {rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </Field>
+            <Field label="날짜"><input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="시작"><input type="time" step={900} className="input" value={start} onChange={(e) => setStart(e.target.value)} /></Field>
+              <Field label="종료"><input type="time" step={900} className="input" value={end} onChange={(e) => setEnd(e.target.value)} /></Field>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button className="btn" onClick={onClose}>취소</button>
+              <button className="btn btn-primary" disabled={!sessionValid}
+                onClick={() => onCreate({ courseId, instructorId: lockInstructorId ?? (instructorId || undefined), roomId: roomId || undefined, sessionDate: date, startTime: start, endTime: end })}>
+                수업 추가
+              </button>
+            </div>
+          </>
         ) : (
-          <Field label="강사">
-            <input className="input" value={lockedInstructorName ?? "본인"} disabled readOnly />
-          </Field>
+          <>
+            <p className="text-[12px] text-fg-muted">주간 반복 가용/불가 시간을 설정합니다. (요일 단위)</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="대상">
+                <select className="input" value={bType} disabled={lockOwner}
+                  onChange={(e) => { setBType(e.target.value as typeof bType); setBId(""); }}>
+                  <option value="instructor">강사</option>
+                  <option value="student">학생</option>
+                  <option value="room">강의실</option>
+                </select>
+              </Field>
+              <Field label={bType === "instructor" ? "강사" : bType === "student" ? "학생" : "강의실"}>
+                <select className="input" value={bId} disabled={lockOwner} onChange={(e) => setBId(e.target.value ? Number(e.target.value) : "")}>
+                  <option value="">선택</option>
+                  {ownerList.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </select>
+              </Field>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="종류">
+                <select className="input" value={bKind} onChange={(e) => setBKind(e.target.value as typeof bKind)}>
+                  <option value="unavailable">불가(차단)</option>
+                  <option value="available">가용</option>
+                </select>
+              </Field>
+              <Field label="요일">
+                <select className="input" value={bWeekday} onChange={(e) => setBWeekday(Number(e.target.value))}>
+                  {WD.map((w, i) => <option key={i} value={i}>{w}</option>)}
+                </select>
+              </Field>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="시작"><input type="time" step={900} className="input" value={bStart} onChange={(e) => setBStart(e.target.value)} /></Field>
+              <Field label="종료"><input type="time" step={900} className="input" value={bEnd} onChange={(e) => setBEnd(e.target.value)} /></Field>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button className="btn" onClick={onClose}>취소</button>
+              <button className="btn btn-primary" disabled={!blockValid}
+                onClick={() => onCreateBlock({ ownerType: bType, ownerId: Number(bId), kind: bKind, weekday: bWeekday, startTime: bStart, endTime: bEnd })}>
+                {bKind === "unavailable" ? "불가시간" : "가용시간"} 추가
+              </button>
+            </div>
+          </>
         )}
-        <Field label="강의실">
-          <select className="input" value={roomId} onChange={(e) => setRoomId(e.target.value ? Number(e.target.value) : "")}>
-            <option value="">미지정</option>
-            {rooms.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="날짜">
-          <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
-        </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="시작">
-            <input type="time" step={900} className="input" value={start} onChange={(e) => setStart(e.target.value)} />
-          </Field>
-          <Field label="종료">
-            <input type="time" step={900} className="input" value={end} onChange={(e) => setEnd(e.target.value)} />
-          </Field>
-        </div>
-        <div className="flex justify-end gap-2 pt-1">
-          <button className="btn" onClick={onClose}>
-            취소
-          </button>
-          <button
-            className="btn btn-primary"
-            disabled={!valid}
-            onClick={() =>
-              onCreate({
-                courseId,
-                instructorId: lockInstructorId ?? (instructorId || undefined),
-                roomId: roomId || undefined,
-                sessionDate: date,
-                startTime: start,
-                endTime: end,
-              })
-            }
-          >
-            추가
-          </button>
-        </div>
       </div>
     </div>
   );
