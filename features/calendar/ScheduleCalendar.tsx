@@ -14,7 +14,7 @@ import { TableView } from "./TableView";
 // ── 그리드 상수 (애플/구글 캘린더 스타일: 넓고 시간 단위가 또렷하게) ──
 const START_H = 8,
   END_H = 22,
-  HOUR_H = 60,
+  HOUR_H = 46, // 시간당 높이(px) — 세로로 너무 길지 않게 압축(한눈에 들어오도록)
   SNAP = 15;
 const HEADER_H = 52; // 요일/강의실 헤더 높이
 const GUTTER_W = 64; // 시간 거터 너비
@@ -502,7 +502,7 @@ export function ScheduleCalendar() {
   const showNow = nowMin >= GRID_MIN && nowMin <= END_H * 60;
 
   return (
-    <div className="p-6 max-w-[1360px] mx-auto">
+    <div className="p-6 max-w-[1560px] mx-auto">
       <div className="flex items-end justify-between flex-wrap gap-3 mb-4">
         <div>
           <h1 className="text-[20px] font-semibold">스케줄 캘린더</h1>
@@ -566,7 +566,7 @@ export function ScheduleCalendar() {
       </div>
 
       <div className="flex gap-4 items-start">
-        {/* 좌측: 학생 → 강사 추천(오른쪽에서 고른 학생 기준) */}
+        {/* 좌측: 학생 → 강사 추천(오른쪽에서 고른 학생 기준). */}
         {resources && (
           <StudentMatchPanel
             resources={resources}

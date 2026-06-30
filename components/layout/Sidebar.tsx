@@ -81,24 +81,44 @@ export default function Sidebar() {
             : "김민수"; // super_admin / admin
   const identity = { name: tokenName ?? demoName };
 
+  // 좌측 네비 접기/펴기 — 화면 가로 비율 조절. 선택값은 localStorage에 보존.
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.localStorage.getItem("sidebarCollapsed") === "1") setCollapsed(true);
+  }, []);
+  const toggle = () => {
+    setCollapsed((v) => {
+      const next = !v;
+      if (typeof window !== "undefined") window.localStorage.setItem("sidebarCollapsed", next ? "1" : "0");
+      return next;
+    });
+  };
+
   return (
-    <aside className="w-60 shrink-0 border-r flex flex-col bg-canvas">
-      <div className="h-14 flex items-center gap-2.5 px-4 border-b">
-        <div className="w-7 h-7 rounded-md grid place-items-center text-fg-onemph font-bold text-[13px] bg-[var(--color-fg)]">
-          <Link href="/" className="">
-            T
-          </Link>
+    <aside className={`${collapsed ? "w-14" : "w-60"} shrink-0 border-r flex flex-col bg-canvas transition-[width] duration-200`}>
+      <div className={`h-14 flex items-center border-b ${collapsed ? "justify-center px-0" : "gap-2.5 px-4"}`}>
+        <div className="w-7 h-7 rounded-md grid place-items-center text-fg-onemph font-bold text-[13px] bg-[var(--color-fg)] shrink-0">
+          <Link href="/">T</Link>
         </div>
-        <div className="leading-tight">
-          <div className="font-semibold text-[14px]">TACO ERP</div>
-          <div className="text-[11px] text-fg-subtle">TnAcademy</div>
-        </div>
+        {!collapsed && (
+          <>
+            <div className="leading-tight flex-1">
+              <div className="font-semibold text-[14px]">TACO ERP</div>
+              <div className="text-[11px] text-fg-subtle">TnAcademy</div>
+            </div>
+            <button onClick={toggle} title="네비 접기" className="w-6 h-6 grid place-items-center rounded text-fg-subtle hover:bg-canvas-subtle text-[14px]">«</button>
+          </>
+        )}
       </div>
+
+      {collapsed && (
+        <button onClick={toggle} title="네비 펴기" className="mx-auto mt-2 w-8 h-7 grid place-items-center rounded text-fg-subtle hover:bg-canvas-subtle text-[14px]">»</button>
+      )}
 
       <nav className="flex-1 overflow-y-auto py-3">
         {groups.map((g) => (
-          <div key={g.title} className="px-3 mb-3">
-            <div className="px-2 mb-1 text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">{g.title}</div>
+          <div key={g.title} className={`mb-3 ${collapsed ? "px-1.5" : "px-3"}`}>
+            {!collapsed && <div className="px-2 mb-1 text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">{g.title}</div>}
             {g.items.map((it) => {
               const Icon = it.icon;
               const active = isActive(it.href);
@@ -106,13 +126,14 @@ export default function Sidebar() {
                 <Link
                   key={it.label}
                   href={it.href}
-                  className={`flex items-center gap-2.5 px-2 h-8 rounded-md text-[13px] mb-0.5 ${
+                  title={collapsed ? it.label : undefined}
+                  className={`flex items-center h-8 rounded-md text-[13px] mb-0.5 ${collapsed ? "justify-center px-0" : "gap-2.5 px-2"} ${
                     active ? "bg-neutral-subtle font-semibold text-fg" : "text-fg-muted hover:bg-canvas-subtle hover:text-fg"
                   }`}
                 >
                   <Icon className="text-fg-subtle" />
-                  <span className="flex-1">{it.label}</span>
-                  {it.badge && <span className="badge badge-accent">{it.badge}</span>}
+                  {!collapsed && <span className="flex-1">{it.label}</span>}
+                  {!collapsed && it.badge && <span className="badge badge-accent">{it.badge}</span>}
                 </Link>
               );
             })}
@@ -120,14 +141,16 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <div className="border-t p-3 flex items-center gap-2.5">
-        <div className="w-7 h-7 rounded-full bg-neutral-subtle grid place-items-center text-[12px] font-semibold text-fg-muted">
+      <div className={`border-t p-3 flex items-center ${collapsed ? "justify-center" : "gap-2.5"}`}>
+        <div className="w-7 h-7 rounded-full bg-neutral-subtle grid place-items-center text-[12px] font-semibold text-fg-muted shrink-0" title={collapsed ? `${identity.name} · ${roleLabel[role]}` : undefined}>
           {identity.name.slice(0, 1)}
         </div>
-        <div className="leading-tight flex-1">
-          <div className="text-[13px] font-medium">{identity.name}</div>
-          <div className="text-[11px] text-fg-subtle">{roleLabel[role]}</div>
-        </div>
+        {!collapsed && (
+          <div className="leading-tight flex-1">
+            <div className="text-[13px] font-medium">{identity.name}</div>
+            <div className="text-[11px] text-fg-subtle">{roleLabel[role]}</div>
+          </div>
+        )}
       </div>
     </aside>
   );
