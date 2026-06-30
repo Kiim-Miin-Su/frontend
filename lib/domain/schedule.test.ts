@@ -269,6 +269,20 @@ describe('suggestPairSlots (학생가용 ∧ 강사가용)', () => {
     expect(out.map((s) => s.startTime)).toEqual(['11:00']); // 10:00·10:30은 점유와 겹쳐 제외
   });
 
+  it('학생이 그 시간에 이미 수업 중이면 제외(다른 강사 수업이라도)', () => {
+    const blocks = [
+      ablock({ id: 1, ownerType: 'instructor', ownerId: 1, kind: 'available', weekday: 1, startTime: '09:00', endTime: '12:00' }),
+      ablock({ id: 2, ownerType: 'student', ownerId: 2, kind: 'available', weekday: 1, startTime: '10:00', endTime: '12:00' }),
+    ];
+    // 강사9(추천 강사1과 무관)의 수업이지만 학생2가 수강 → 학생 점유로 10:00 제외
+    const sessions = [sess({ id: 9, instructorId: 9, studentIds: [2], sessionDate: MON, startTime: '10:00', endTime: '11:00' } as never)];
+    const out = suggestPairSlots(
+      { weekStart: MON, weekdays: [1], durationMinutes: 60, stepMin: 30, instructorId: 1, studentId: 2 },
+      { sessions, blocks },
+    );
+    expect(out.map((s) => s.startTime)).toEqual(['11:00']);
+  });
+
   it('강사 가용 미선언 → 후보 없음(무결성: 학생 일정에 끌려가지 않음)', () => {
     // 강사 가용 블록 없음, 학생만 가용 → 추천 안 됨
     const blocks = [

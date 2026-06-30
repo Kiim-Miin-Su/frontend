@@ -17,22 +17,30 @@ type CourseMatch = {
 };
 
 export function StudentMatchPanel({
-  resources, weekStart, sessions, selected, onAssign,
+  resources, weekStart, selected, onAssign,
 }: {
   resources: ScheduleResources;
   weekStart: string;
-  sessions: ScheduleRow[];
   selected: ScheduleResource | null;
   onAssign: (body: ScheduleCreateBody) => void;
 }) {
   const [subject, setSubject] = useState<string>("");
   const [blocks, setBlocks] = useState<AvailabilityBlock[]>([]);
   const [openCourse, setOpenCourse] = useState<number | null>(null);
+  // 그 주 전체 세션(학생 필터 없이) — 강사가 이미 수업 중인 시간을 추천에서 제외하려면 강사의 모든 수업이 필요.
+  const [allSessions, setAllSessions] = useState<ScheduleRow[]>([]);
+  const weekEnd = useMemo(() => {
+    const d = new Date(weekStart + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + 6);
+    return d.toISOString().slice(0, 10);
+  }, [weekStart]);
 
   const loadBlocks = useCallback(() => {
     api.availability.all().then(setBlocks).catch(() => setBlocks([]));
   }, []);
   useEffect(() => { loadBlocks(); }, [loadBlocks]);
+  useEffect(() => {
+    api.schedule.list({ from: weekStart, to: weekEnd }).then(setAllSessions).catch(() => setAllSessions([]));
+  }, [weekStart, weekEnd]);
 
   const studentId = selected?.type === "student" ? selected.id : null;
   const studentName = selected?.type === "student" ? selected.name : null;
@@ -51,7 +59,7 @@ export function StudentMatchPanel({
       .map((c) => {
         const slots = suggestPairSlots(
           { weekStart, durationMinutes: c.durationMinutes, instructorId: c.instructorId, studentId },
-          { sessions, blocks, limit: 30 },
+          { sessions: allSessions, blocks, limit: 30 }, // 강사 기존 수업(busy)까지 제외
         );
         return {
           courseId: c.id, courseName: c.name, subjectName: c.subjectName,
@@ -60,7 +68,7 @@ export function StudentMatchPanel({
         };
       })
       .sort((a, b) => b.freeSlots - a.freeSlots);
-  }, [studentId, subject, weekStart, sessions, blocks, resources]);
+  }, [studentId, subject, weekStart, allSessions, blocks, resources]);
 
   // #3: 학생∧강사 가용이 겹치는(배정 가능한) 수업만 노출. 겹치지 않는 건 리스트에서 숨김.
   const fit = useMemo(() => matches.filter((m) => m.freeSlots > 0), [matches]);

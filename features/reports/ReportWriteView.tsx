@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Badge, SectionCard, type Tone } from '@/components/ui';
 import { useTacoStore } from '@/lib/store';
 import { DEMO_INSTRUCTOR_ID } from '@/lib/tasks';
+import { sessionNeedsReport } from '@/lib/reports';
 import type { ClassSession, ReportStatus, Student } from '@/types';
 
 const reportTone: Record<ReportStatus, Tone> = { draft: 'neutral', submitted: 'accent', sent: 'success' };
@@ -41,8 +42,8 @@ export function ReportWriteView() {
     return { done, total: roster.length };
   };
 
-  // 기본 선택: 리포트가 필요한 첫 진행완료 수업
-  const firstNeed = sessions.find((s) => { const p = progressOf(s); return s.status === 'held' && p.done < p.total; });
+  // 기본 선택: 리포트가 필요한 첫 진행완료 수업 (단일 소스: lib/reports)
+  const firstNeed = sessions.find((s) => sessionNeedsReport(store, s));
   const [selId, setSelId] = useState<number | undefined>(firstNeed?.id ?? sessions[0]?.id);
   const selected = sessions.find((s) => s.id === selId);
   const roster = selected ? rosterOf(selected.courseId) : [];
@@ -64,7 +65,7 @@ export function ReportWriteView() {
             {sessions.map((s) => {
               const p = progressOf(s);
               const active = s.id === selId;
-              const need = s.status === 'held' && p.done < p.total;
+              const need = sessionNeedsReport(store, s);
               return (
                 <li key={s.id}>
                   <button

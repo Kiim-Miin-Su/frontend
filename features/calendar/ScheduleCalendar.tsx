@@ -674,7 +674,6 @@ export function ScheduleCalendar() {
           <StudentMatchPanel
             resources={resources}
             weekStart={weekStart}
-            sessions={rows}
             selected={selected}
             onAssign={createSession}
           />
@@ -1460,11 +1459,13 @@ function CreateModal({
   const [bType, setBType] = useState<"instructor" | "student" | "room">(lockOwner ? "instructor" : (defaultOwner?.type ?? "instructor"));
   const [bId, setBId] = useState<number | "">(lockOwner ? lockInstructorId! : (defaultOwner?.id ?? ""));
   const [bKind, setBKind] = useState<"available" | "unavailable">("unavailable");
-  const [bWeekday, setBWeekday] = useState<number>(weekdayOf(defaultDate));
+  // 커스텀 반복: 여러 요일 동시 선택(주간 반복 블록 1개/요일 생성). 기본=기준 날짜 요일.
+  const [bWeekdays, setBWeekdays] = useState<number[]>([weekdayOf(defaultDate)]);
+  const toggleBWd = (d: number) => setBWeekdays((ws) => (ws.includes(d) ? ws.filter((x) => x !== d) : [...ws, d].sort()));
   const [bStart, setBStart] = useState("12:00");
   const [bEnd, setBEnd] = useState("13:00");
   const ownerList = bType === "instructor" ? resources.instructors : bType === "student" ? resources.students : rooms.map((r) => ({ id: r.id, name: r.name }));
-  const blockValid = bId !== "" && bStart < bEnd;
+  const blockValid = bId !== "" && bStart < bEnd && bWeekdays.length > 0;
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center" style={{ background: "rgba(0,0,0,.35)" }} onClick={onClose}>
@@ -1582,10 +1583,14 @@ function CreateModal({
                   <option value="available">가용</option>
                 </select>
               </Field>
-              <Field label="요일">
-                <select className="input" value={bWeekday} onChange={(e) => setBWeekday(Number(e.target.value))}>
-                  {WD.map((w, i) => <option key={i} value={i}>{w}</option>)}
-                </select>
+              <Field label="요일(여러 개 선택 가능)">
+                <div className="flex gap-1">
+                  {WD.map((w, i) => (
+                    <button key={i} type="button" onClick={() => toggleBWd(i)}
+                      className={`w-8 h-8 rounded text-[12px] border ${bWeekdays.includes(i) ? "badge-accent" : ""}`}
+                      style={{ borderColor: "var(--color-line)" }}>{w}</button>
+                  ))}
+                </div>
               </Field>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -1595,8 +1600,8 @@ function CreateModal({
             <div className="flex justify-end gap-2 pt-1">
               <button className="btn" onClick={onClose}>취소</button>
               <button className="btn btn-primary" disabled={!blockValid}
-                onClick={() => onCreateBlock({ ownerType: bType, ownerId: Number(bId), kind: bKind, weekday: bWeekday, startTime: bStart, endTime: bEnd })}>
-                {bKind === "unavailable" ? "불가시간" : "가용시간"} 추가
+                onClick={() => bWeekdays.forEach((wd) => onCreateBlock({ ownerType: bType, ownerId: Number(bId), kind: bKind, weekday: wd, startTime: bStart, endTime: bEnd }))}>
+                {bKind === "unavailable" ? "불가시간" : "가용시간"} 추가{bWeekdays.length > 1 ? ` (${bWeekdays.length}일)` : ""}
               </button>
             </div>
           </>

@@ -15,6 +15,7 @@ import type {
 } from '@/types';
 import type { Tone } from '@/components/ui';
 import { isAdmin } from '@/lib/roles';
+import { pendingReportSessions, type ReportSlice } from '@/lib/reports';
 
 // 회계상 분리: pay(강사 페이=출금) / expense(지출=출금) / payment(결제·수납=입금) / counsel(상담) / report·class(강사)
 export type TaskGroup = 'pay' | 'expense' | 'payment' | 'counsel' | 'report' | 'class';
@@ -35,7 +36,7 @@ export const DEMO_INSTRUCTOR_ID = 1;
 // 월 정산(재결제) 주기 기준 수업 횟수(데모). 주 2회 × 4주 = 8회.
 export const PAYMENT_CYCLE_SESSIONS = 8;
 
-type StoreSlice = {
+type StoreSlice = ReportSlice & {
   currentRole: AccountRole;
   instructors: Instructor[];
   students: Student[];
@@ -130,6 +131,16 @@ function adminTasks(s: StoreSlice): TaskItem[] {
       href: '/admin/approvals',
     });
   }
+
+  // ── 수업 보고서 — 승인 대기(작성완료·미승인) ──
+  for (const r of s.sessionReports.filter((x) => (x.status === 'submitted' || x.approvalStatus === 'submitted') && x.approvalStatus !== 'approved')) {
+    out.push({
+      id: `report-approve-${r.id}`, group: 'report', tone: 'accent', counts: true,
+      title: `수업 보고서 승인 대기 — ${sname(r.studentId)}`,
+      detail: `${iname(r.instructorId)} · 승인 시 시수 집계`,
+      href: '/reports',
+    });
+  }
   return out;
 }
 
@@ -137,19 +148,15 @@ function adminTasks(s: StoreSlice): TaskItem[] {
 function instructorTasks(s: StoreSlice, instructorId: number): TaskItem[] {
   const today = todayISO();
   const out: TaskItem[] = [];
-  const reportedSessionIds = new Set(s.sessionReports.map((r) => r.sessionId));
 
-  // 진행됐는데 리포트 없음 → 시수/페이가 잡히려면 작성 필요
-  for (const ses of s.classSessions) {
-    if (ses.instructorId !== instructorId) continue;
-    if (ses.status === 'held' && !reportedSessionIds.has(ses.id)) {
-      out.push({
-        id: `report-${ses.id}`, group: 'report', tone: 'danger', counts: true,
-        title: `리포트 미작성 — ${ses.topic ?? '수업'}`,
-        detail: `${ses.sessionDate} ${ses.startTime ?? ''} · 작성해야 시수가 측정됩니다`,
-        href: '/reports/write',
-      });
-    }
+  // 진행됐는데 리포트 미작성 → 시수/페이가 잡히려면 작성 필요. (단일 소스: lib/reports)
+  for (const ses of pendingReportSessions(s, instructorId)) {
+    out.push({
+      id: `report-${ses.id}`, group: 'report', tone: 'danger', counts: true,
+      title: `리포트 미작성 — ${ses.topic ?? '수업'}`,
+      detail: `${ses.sessionDate} ${ses.startTime ?? ''} · 작성해야 시수가 측정됩니다`,
+      href: '/reports/write',
+    });
   }
 
   // 오늘 수업(진행 예정) — 카운트 / 다가오는 수업 — 정보성
@@ -175,4 +182,29 @@ export function buildTasks(s: StoreSlice, role: AccountRole = s.currentRole): { 
   // 학생/학부모는 운영 할 일 없음(일정은 캘린더에서)
   const count = items.filter((t) => t.counts).length;
   return { items, count };
+}
+
+// 이벤트(TaskItem.href) → 사이드바 최상위 탭으로 매핑. 권한(role)에 따라 buildTasks가 이미
+// 역할에 맞는 이벤트만 만들므로, 그 결과를 탭별 배지 개수로 집계하면 "권한에 맞는 알림"이 된다.
+function taskHrefToNav(href: string): string {
+  if (href.startsWith('/admin')) return '/admin';
+  if (href.startsWith('/reports')) return '/reports';
+  if (href.startsWith('/payouts')) return '/payouts';
+  if (href.startsWith('/payments')) return '/payments';
+  if (href.startsWith('/counsel')) return '/counsel';
+  if (href.startsWith('/expenses')) return '/expenses';
+  if (href.startsWith('/sessions')) return '/sessions';
+  return href;
+}
+
+// 사이드바 탭별 빨간 배지 개수(역할 반영). { '/reports': 2, '/payouts': 1, ... }
+export function navBadges(s: StoreSlice, role: AccountRole = s.currentRole): Record<string, number> {
+  const { items } = buildTasks(s, role);
+  const map: Record<string, number> = {};
+  for (const t of items) {
+    if (!t.counts) continue;
+    const nav = taskHrefToNav(t.href);
+    map[nav] = (map[nav] ?? 0) + 1;
+  }
+  return map;
 }

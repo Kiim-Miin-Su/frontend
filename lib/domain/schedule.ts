@@ -277,7 +277,12 @@ export function suggestPairSlots(input: PairSuggestInput, ctx: PairSuggestCtx): 
   const busy = (date: string, s: number, e: number): boolean =>
     ctx.sessions.some((ss) => {
       if (ss.sessionDate !== date || !ss.startTime) return false;
-      const sameRes = ss.instructorId === input.instructorId || (input.roomId != null && ss.roomId === input.roomId);
+      // 강사 점유 · (지정 시)강의실 점유 · 학생 점유(enriched 행의 studentIds) 모두 제외
+      const studentIds = (ss as ClassSession & { studentIds?: ID[] }).studentIds;
+      const sameRes =
+        ss.instructorId === input.instructorId ||
+        (input.roomId != null && ss.roomId === input.roomId) ||
+        (input.studentId != null && (studentIds?.includes(input.studentId) ?? false));
       if (!sameRes) return false;
       const se = ss.endTime ? toMin(ss.endTime) : toMin(ss.startTime) + ss.durationMinutes;
       return s < se && toMin(ss.startTime) < e;

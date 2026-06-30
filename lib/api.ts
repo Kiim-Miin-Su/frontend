@@ -2,6 +2,7 @@
 // baseURL = `${NEXT_PUBLIC_API_URL}/api`. 로컬은 미설정 시 next.config rewrites가 localhost로 프록시,
 // 배포(Vercel)는 NEXT_PUBLIC_API_URL을 백엔드 도메인으로 지정하면 직접 호출(백엔드 CORS 허용).
 import axios from "axios";
+import { logger } from "./log";
 import type {
   Student,
   Enrollment,
@@ -77,6 +78,25 @@ export const http = axios.create({
   headers: { "Content-Type": "application/json" },
   timeout: 10000,
 });
+
+// 모든 API 요청/응답/에러를 한 곳에서 로깅 — 문제 발생 시 콘솔에서 어떤 호출이 실패했는지 즉시 확인.
+// (브라우저 콘솔에서 [TACO:api] 로 필터. 끄려면 localStorage taco_debug="0")
+const apiLog = logger("api");
+http.interceptors.request.use((cfg) => {
+  apiLog.debug(`→ ${cfg.method?.toUpperCase()} ${cfg.url}`, cfg.params ?? cfg.data ?? "");
+  return cfg;
+});
+http.interceptors.response.use(
+  (res) => {
+    apiLog.debug(`← ${res.status} ${res.config.url}`);
+    return res;
+  },
+  (err) => {
+    const status = err?.response?.status ?? "ERR";
+    apiLog.error(`✗ ${status} ${err?.config?.method?.toUpperCase() ?? ""} ${err?.config?.url ?? ""}`, err?.response?.data ?? err?.message);
+    return Promise.reject(err);
+  },
+);
 
 export type LoginBody = { webId: string; password?: string };
 export type LoginResult = { accessToken: string; account: { id: number; name: string; role: string } };
