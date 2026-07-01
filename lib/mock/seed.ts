@@ -82,6 +82,11 @@ export const classSessions: ClassSession[] = [
   { id: 20, courseId: 10, instructorId: 1, sessionDate: '2026-06-17', startTime: '16:00', durationMinutes: 90, status: 'held', topic: 'Reading: 주제·요지' },
   { id: 21, courseId: 11, instructorId: 2, sessionDate: '2026-06-16', startTime: '18:00', durationMinutes: 90, status: 'held', topic: '미분 응용' },
   { id: 22, courseId: 12, instructorId: 1, sessionDate: '2026-06-22', startTime: '18:00', durationMinutes: 90, status: 'held', topic: 'TOEFL Reading 스킬' },
+  // 보강 필요(강사 To-do) — 취소된 수업. 아직 보강 미배정 → 배지 카운트.
+  { id: 23, courseId: 10, instructorId: 1, sessionDate: '2026-06-25', startTime: '16:00', durationMinutes: 90, status: 'canceled', topic: 'Reading: 문장 삽입(취소)' },
+  // 취소 → 보강 세션으로 해소된 예시(makeupForSessionId 링크) → 배지에서 제외됨.
+  { id: 24, courseId: 12, instructorId: 1, sessionDate: '2026-06-18', startTime: '18:00', durationMinutes: 90, status: 'canceled', topic: 'TOEFL Listening(취소)' },
+  { id: 25, courseId: 12, instructorId: 1, sessionDate: '2026-06-27', startTime: '18:00', durationMinutes: 90, status: 'makeup', topic: 'TOEFL Listening(보강)', makeupForSessionId: 24 },
 ];
 
 // 수업1(코스10) 수강생: 학생 1,4 / 수업2(코스11) 수강생: 학생 2

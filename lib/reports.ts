@@ -18,7 +18,8 @@ function rosterStudentIds(s: ReportSlice, courseId: number): number[] {
 }
 
 // 세션 종료 시각(ms). endTime 없으면 startTime + durationMinutes로 계산. (로컬 시각 기준)
-function sessionEndMs(session: ClassSession): number {
+// export: 보강 판정(lib/makeup)도 "실제 종료 여부"를 같은 규칙으로 공유.
+export function sessionEndMs(session: ClassSession): number {
   if (!session.startTime) return Number.POSITIVE_INFINITY; // 시작 시각 없으면 종료 판정 보류(미포함)
   let endHHMM = session.endTime;
   if (!endHHMM) {

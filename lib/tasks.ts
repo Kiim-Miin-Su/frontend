@@ -16,6 +16,7 @@ import type {
 import type { Tone } from '@/components/ui';
 import { isAdmin } from '@/lib/roles';
 import { pendingReportSessions, pendingReportItemCount, type ReportSlice } from '@/lib/reports';
+import { makeupNeeds, makeupNeededCount, MAKEUP_REASON_LABEL } from '@/lib/makeup';
 
 // 회계상 분리: pay(강사 페이=출금) / expense(지출=출금) / payment(결제·수납=입금) / counsel(상담) / report·class(강사)
 export type TaskGroup = 'pay' | 'expense' | 'payment' | 'counsel' | 'report' | 'class';
@@ -142,6 +143,17 @@ function instructorTasks(s: StoreSlice, instructorId: number): TaskItem[] {
     });
   }
 
+  // 취소·미진행(펑크) → 보강 필요(월 시수 부족). 캘린더에서 보강 일정을 잡아야 함. (단일 소스: lib/makeup)
+  for (const m of makeupNeeds(s, instructorId).filter((x) => !x.resolved)) {
+    const ses = m.session;
+    out.push({
+      id: `makeup-${ses.id}`, group: 'class', tone: 'attention', counts: true,
+      title: `보강 필요 — ${ses.topic ?? '수업'}`,
+      detail: `${ses.sessionDate} ${ses.startTime ?? ''} · ${MAKEUP_REASON_LABEL[m.reason]} → 보강 일정 필요`,
+      href: '/calendar',
+    });
+  }
+
   // 오늘 수업(진행 예정) — 카운트 / 다가오는 수업 — 정보성
   const upcoming = s.classSessions
     .filter((ses) => ses.instructorId === instructorId && ses.status === 'scheduled' && ses.sessionDate >= today)
@@ -174,9 +186,10 @@ export function navBadges(s: StoreSlice, role: AccountRole = s.currentRole): Rec
   const out: Record<string, number> = {};
   const put = (nav: string, n: number) => { if (n > 0) out[nav] = n; };
 
-  // 강사: 본인 수업보고서 미작성(보고서 건수)만
+  // 강사: 본인 수업보고서 미작성(보고서 건수) + 취소·미진행 보강 필요(캘린더 탭)
   if (role === 'instructor') {
     put('/reports', pendingReportItemCount(s, DEMO_INSTRUCTOR_ID));
+    put('/calendar', makeupNeededCount(s, DEMO_INSTRUCTOR_ID)); // 보강 필요 건수(캘린더 탭)
     return out;
   }
   if (!isAdmin(role)) return out; // 학생/학부모 등은 알림 없음
