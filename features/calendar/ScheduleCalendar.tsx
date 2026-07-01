@@ -1132,8 +1132,8 @@ function BlockEditModal({
   const periodOk = !from || !to || from <= to;
   const valid = start < end && periodOk;
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center" style={{ background: "rgba(0,0,0,.35)" }} onClick={onClose}>
-      <div className="card card-pad w-[380px] space-y-3" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 grid place-items-center p-4" style={{ background: "rgba(0,0,0,.35)" }} onClick={onClose}>
+      <div className="card card-pad w-[380px] max-w-[95vw] max-h-[90vh] overflow-y-auto space-y-3" onClick={(e) => e.stopPropagation()}>
         <div className="font-semibold">{kind === "unavailable" ? "불가시간" : "가용시간"} 수정</div>
         <Field label="종류">
           <select className="input" value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
@@ -1312,8 +1312,8 @@ function DetailModal({
   const isSeries = row.seriesId != null;
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center" style={{ background: "rgba(0,0,0,.35)" }} onClick={onClose}>
-      <div className="card card-pad w-[440px] space-y-3" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 grid place-items-center p-4" style={{ background: "rgba(0,0,0,.35)" }} onClick={onClose}>
+      <div className="card card-pad w-[440px] max-w-[95vw] max-h-[90vh] overflow-y-auto space-y-3" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start gap-2">
           <span className="inline-block w-3 h-3 rounded-sm mt-1.5 shrink-0" style={{ background: colorOf(row) }} />
           <div className="flex-1">
@@ -1605,8 +1605,8 @@ function CreateModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center" style={{ background: "rgba(0,0,0,.35)" }} onClick={onClose}>
-      <div className="card card-pad w-[440px] space-y-3" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 grid place-items-center p-4" style={{ background: "rgba(0,0,0,.35)" }} onClick={onClose}>
+      <div className="card card-pad w-[440px] max-w-[95vw] max-h-[90vh] overflow-y-auto space-y-3" onClick={(e) => e.stopPropagation()}>
         <div className="flex rounded-md overflow-hidden border" style={{ borderColor: "var(--color-line)" }}>
           {([["session", "수업"], ["available", "가용"], ["unavailable", "불가"]] as const).map(([v, lbl]) => (
             <button key={v} className={`btn btn-sm flex-1 rounded-none border-0 ${type === v ? "badge-accent" : ""}`} onClick={() => setType(v)}>{lbl}</button>

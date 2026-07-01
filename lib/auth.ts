@@ -30,21 +30,31 @@ export function hasRole(token: string, role: string): boolean {
 // ── 토큰 저장: 쿠키(미들웨어 가드가 읽을 수 있도록) ──
 // localStorage가 아닌 쿠키에 두는 이유: Next.js middleware는 서버 엣지에서 쿠키만 읽을 수 있음.
 const TOKEN_KEY = 'token';
+// 인메모리 폴백: 쿠키가 어떤 이유로든(만료 계산·samesite·읽기 타이밍) 비어도 이 세션 동안 토큰 유지.
+// → 로그인했는데 일부 요청만 401(토큰 누락)로 실패하던 문제 방지.
+let memToken: string | null = null;
 
 export function setToken(token: string) {
+  memToken = token;
   if (typeof document === 'undefined') return;
   const claims = decodeToken(token);
-  const maxAge = claims ? Math.max(0, claims.exp - Math.floor(Date.now() / 1000)) : 3600;
-  document.cookie = `${TOKEN_KEY}=${encodeURIComponent(token)}; path=/; max-age=${maxAge}; samesite=lax`;
+  // max-age는 최소 60초 보장(만료 임박·시계 오차로 즉시 사라지는 것 방지). 기본 1시간.
+  const remain = claims ? claims.exp - Math.floor(Date.now() / 1000) : 3600;
+  const maxAge = Math.max(60, remain);
+  const secure = typeof location !== 'undefined' && location.protocol === 'https:' ? '; secure' : '';
+  document.cookie = `${TOKEN_KEY}=${encodeURIComponent(token)}; path=/; max-age=${maxAge}; samesite=lax${secure}`;
 }
 
 export function getToken(): string | null {
-  if (typeof document === 'undefined') return null;
-  const m = document.cookie.match(new RegExp(`(?:^|; )${TOKEN_KEY}=([^;]*)`));
-  return m ? decodeURIComponent(m[1]) : null;
+  if (typeof document !== 'undefined') {
+    const m = document.cookie.match(new RegExp(`(?:^|; )${TOKEN_KEY}=([^;]*)`));
+    if (m) return decodeURIComponent(m[1]);
+  }
+  return memToken; // 쿠키 없으면 인메모리 폴백
 }
 
 export function clearToken() {
+  memToken = null;
   if (typeof document === 'undefined') return;
   document.cookie = `${TOKEN_KEY}=; path=/; max-age=0; samesite=lax`;
 }

@@ -3,7 +3,8 @@
 // 배포(Vercel)는 NEXT_PUBLIC_API_URL을 백엔드 도메인으로 지정하면 직접 호출(백엔드 CORS 허용).
 import axios from "axios";
 import { logger } from "./log";
-import { getToken } from "./auth";
+import { getToken, clearToken } from "./auth";
+import { isPublicRoute } from "./auth-routes";
 import type {
   Student,
   Enrollment,
@@ -98,6 +99,17 @@ http.interceptors.response.use(
   (err) => {
     const status = err?.response?.status ?? "ERR";
     apiLog.error(`✗ ${status} ${err?.config?.method?.toUpperCase() ?? ""} ${err?.config?.url ?? ""}`, err?.response?.data ?? err?.message);
+    // 401(토큰 없음/만료): 조용히 실패하지 않고 로그인으로 유도 — 세션이 끊긴 걸 사용자에게 알림.
+    // 단, 로그인 시도 자체의 401(잘못된 자격)이나 공개 경로에선 리다이렉트하지 않음.
+    if (
+      status === 401 &&
+      typeof window !== "undefined" &&
+      !isPublicRoute(window.location.pathname) &&
+      !String(err?.config?.url ?? "").includes("/auth/login")
+    ) {
+      clearToken();
+      window.location.href = "/login?expired=1";
+    }
     return Promise.reject(err);
   },
 );
