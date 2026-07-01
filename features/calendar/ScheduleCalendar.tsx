@@ -273,15 +273,24 @@ export function ScheduleCalendar() {
   const [editingBlock, setEditingBlock] = useState<AvailabilityBlock | null>(null);
   const [bDraft, setBDraft] = useState<{ colKey: string; start: number; end: number; kind: string } | null>(null);
   const bDragRef = useRef<{
-    colKey: string; date: string; kind: AvailabilityBlock["kind"]; id: number; edge: "top" | "bottom";
+    colKey: string; date: string; kind: AvailabilityBlock["kind"]; id: number; edge: "top" | "bottom" | "move";
     startClientY: number; origStart: number; origEnd: number; start: number; end: number;
   } | null>(null);
+  const bMovedRef = useRef(false); // 이동/리사이즈 드래그 발생 여부 — 직후 클릭(선택 토글) 억제용
 
   const bMove = (e: PointerEvent) => {
     const d = bDragRef.current; if (!d) return;
     const delta = snap(((e.clientY - d.startClientY) / HOUR_H) * 60);
+    if (delta !== 0) bMovedRef.current = true;
     if (d.edge === "top") d.start = Math.min(d.origEnd - SNAP, clampMin(d.origStart + delta));
-    else d.end = Math.max(d.origStart + SNAP, clampMin(d.origEnd + delta));
+    else if (d.edge === "bottom") d.end = Math.max(d.origStart + SNAP, clampMin(d.origEnd + delta));
+    else {
+      // 본체 이동: 시작·종료를 함께 이동(길이 보존), 그리드 안에 유지.
+      const dur = d.origEnd - d.origStart;
+      let ns = clampMin(d.origStart + delta);
+      if (ns + dur > END_H * 60) ns = END_H * 60 - dur;
+      d.start = ns; d.end = ns + dur;
+    }
     setBDraft({ colKey: d.colKey, start: d.start, end: d.end, kind: d.kind });
   };
   const bUp = () => {
@@ -289,13 +298,15 @@ export function ScheduleCalendar() {
     const d = bDragRef.current; bDragRef.current = null; setBDraft(null);
     if (!d || !selected || d.end <= d.start) return;
     if (d.start === d.origStart && d.end === d.origEnd) return;
+    // 겹침(버그2)은 백엔드가 409로 거부 → createBlock가 메시지 노출, 밴드는 원위치 유지.
     createBlock({
       id: d.id, ownerType: selected.type, ownerId: selected.id, kind: d.kind,
       weekday: weekdayOf(d.date), startTime: fromMin(d.start), endTime: fromMin(d.end),
     });
   };
-  const bDownResize = (e: React.PointerEvent, c: { key: string; date: string }, b: { id: number; kind: string; startMin: number; endMin: number }, edge: "top" | "bottom") => {
+  const bDown = (e: React.PointerEvent, c: { key: string; date: string }, b: { id: number; kind: string; startMin: number; endMin: number }, edge: "top" | "bottom" | "move") => {
     e.stopPropagation();
+    bMovedRef.current = false;
     bDragRef.current = {
       colKey: c.key, date: c.date, kind: b.kind as AvailabilityBlock["kind"], id: b.id, edge,
       startClientY: e.clientY, origStart: b.startMin, origEnd: b.endMin, start: b.startMin, end: b.endMin,
@@ -304,6 +315,7 @@ export function ScheduleCalendar() {
     window.addEventListener("pointermove", bMove);
     window.addEventListener("pointerup", bUp, { once: true });
   };
+  const bDownResize = (e: React.PointerEvent, c: { key: string; date: string }, b: { id: number; kind: string; startMin: number; endMin: number }, edge: "top" | "bottom") => bDown(e, c, b, edge);
 
   // 충돌(Conflict)을 실제 데이터(강사명·상대 스케줄)로 사람이 읽을 수 있게 변환.
   const CONFLICT_LABEL: Record<string, string> = { double_book: "이중예약", unavailable: "불가시간 겹침", room_capacity: "강의실 정원 초과" };
@@ -829,10 +841,14 @@ export function ScheduleCalendar() {
                               return (
                               <div
                                 key={`b${b.id}`}
-                                onClick={(e) => { if (selected) { e.stopPropagation(); setSelBand(on ? null : b.id); setSelEvent(null); } }}
+                                onPointerDown={on ? (e) => { if (e.target === e.currentTarget) bDown(e, c, b, "move"); } : undefined}
+                                onClick={(e) => {
+                                  if (bMovedRef.current) { bMovedRef.current = false; return; } // 드래그 직후 클릭 무시(선택 유지)
+                                  if (selected) { e.stopPropagation(); setSelBand(on ? null : b.id); setSelEvent(null); }
+                                }}
                                 onDoubleClick={(e) => { e.stopPropagation(); const blk = selBlocks.find((x) => x.id === b.id); if (blk) setEditingBlock(blk); }}
-                                title={b.kind === "unavailable" ? "불가시간 — 클릭 선택 · 더블클릭 수정" : "가용시간 — 클릭 선택 · 더블클릭 수정"}
-                                className={`absolute left-0 right-0 ${selected ? "cursor-pointer" : "pointer-events-none"}`}
+                                title={b.kind === "unavailable" ? "불가시간 — 클릭 선택 · 드래그 이동 · 끝 드래그 시간조절 · 더블클릭 수정" : "가용시간 — 클릭 선택 · 드래그 이동 · 더블클릭 수정"}
+                                className={`absolute left-0 right-0 ${!selected ? "pointer-events-none" : on ? "cursor-move" : "cursor-pointer"}`}
                                 style={
                                   b.kind === "unavailable"
                                     ? {
