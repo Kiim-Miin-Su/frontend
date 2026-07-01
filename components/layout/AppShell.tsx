@@ -49,6 +49,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const setTransactions = useTacoStore((s) => s.setTransactions);
   const setAcademyEvents = useTacoStore((s) => s.setAcademyEvents);
   const setAttendanceList = useTacoStore((s) => s.setAttendanceList);
+  const setRoadmaps = useTacoStore((s) => s.setRoadmaps);
+  const setRoadmapCourses = useTacoStore((s) => s.setRoadmapCourses);
   const publicRoute = isPublicRoute(pathname);
 
   // 로그인된 경우에만 역할을 앱 전역 currentRole에 반영(공개 경로에선 동기화하지 않음).
@@ -77,6 +79,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const transactionsQ = useQuery({ queryKey: qk.transactions.list(), queryFn: () => api.transactions.list(), enabled });
   const eventsQ = useQuery({ queryKey: qk.events.list(), queryFn: () => api.events.list(), enabled });
   const attendanceQ = useQuery({ queryKey: qk.attendance.list(), queryFn: () => api.attendance.list(), enabled });
+  const roadmapsQ = useQuery({ queryKey: qk.roadmaps.list(), queryFn: () => api.roadmaps.list(), enabled });
+  const roadmapCoursesQ = useQuery({ queryKey: qk.roadmaps.courses(), queryFn: () => api.roadmaps.courses(), enabled });
 
   useEffect(() => { if (payoutsQ.data) setInstructorPayouts(payoutsQ.data); }, [payoutsQ.data, setInstructorPayouts]);
   useEffect(() => { if (scheduleQ.data) setClassSessions(scheduleQ.data); }, [scheduleQ.data, setClassSessions]);
@@ -92,6 +96,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => { if (transactionsQ.data?.length) setTransactions(transactionsQ.data); }, [transactionsQ.data, setTransactions]);
   useEffect(() => { if (eventsQ.data?.length) setAcademyEvents(eventsQ.data); }, [eventsQ.data, setAcademyEvents]);
   useEffect(() => { if (attendanceQ.data) setAttendanceList(attendanceQ.data); }, [attendanceQ.data, setAttendanceList]);
+  useEffect(() => { if (roadmapsQ.data?.length) setRoadmaps(roadmapsQ.data); }, [roadmapsQ.data, setRoadmaps]);
+  useEffect(() => { if (roadmapCoursesQ.data?.length) setRoadmapCourses(roadmapCoursesQ.data); }, [roadmapCoursesQ.data, setRoadmapCourses]);
 
   if (publicRoute) return <>{children}</>;
 

@@ -19,6 +19,9 @@ import type {
   CreateEventInput,
   Attendance,
   AttendanceStatus,
+  Roadmap,
+  RoadmapCourse,
+  CreateRoadmapInput,
   CreateStudentInput,
   CreateEnrollmentInput,
   WebIdCheckResult,
@@ -190,6 +193,11 @@ export const api = {
     list: () => http.get<Attendance[]>("/attendance").then((r) => r.data),
     upsert: (body: { sessionId: number; studentId: number; status: AttendanceStatus }) =>
       http.put<Attendance>("/attendance", body).then((r) => r.data),
+  },
+  roadmaps: {
+    list: () => http.get<Roadmap[]>("/roadmaps").then((r) => r.data),
+    courses: () => http.get<RoadmapCourse[]>("/roadmaps/courses").then((r) => r.data),
+    create: (input: CreateRoadmapInput) => http.post<Roadmap>("/roadmaps", input).then((r) => r.data),
   },
   users: {
     // web id 존재 확인 (등록 폼 "확인하기")

@@ -35,4 +35,9 @@ export const qk = {
   transactions: { all: ["transactions"] as const, list: () => ["transactions", "list"] as const },
   events: { all: ["events"] as const, list: () => ["events", "list"] as const },
   attendance: { all: ["attendance"] as const, list: () => ["attendance", "list"] as const },
+  roadmaps: {
+    all: ["roadmaps"] as const,
+    list: () => ["roadmaps", "list"] as const,
+    courses: () => ["roadmaps", "courses"] as const,
+  },
 } as const;
