@@ -115,6 +115,8 @@ type TacoState = {
   setPayments: (rows: Payment[]) => void;
   setExpenses: (rows: Expense[]) => void;
   setEnrollments: (rows: Enrollment[]) => void;
+  setCourses: (rows: Course[]) => void;
+  setSubjects: (rows: Subject[]) => void;
   addSubject: (input: CreateSubjectInput) => Subject;
   addCourse: (input: CreateCourseInput) => Course;
   addRoadmap: (input: CreateRoadmapInput) => Roadmap;
@@ -545,6 +547,8 @@ export const useTacoStore = create<TacoState>((set) => ({
   setPayments: (rows) => set({ payments: rows }),
   setExpenses: (rows) => set({ expenses: rows }),
   setEnrollments: (rows) => set({ enrollments: rows }),
+  setCourses: (rows) => set({ courses: rows }),
+  setSubjects: (rows) => set({ subjects: rows }),
 
   // 기간 + 요일 반복으로 수업 다건 생성 (캘린더 표시용)
   addRecurringClassSessions: (input) => {

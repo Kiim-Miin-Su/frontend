@@ -37,6 +37,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const setPayments = useTacoStore((s) => s.setPayments);
   const setExpenses = useTacoStore((s) => s.setExpenses);
   const setEnrollments = useTacoStore((s) => s.setEnrollments);
+  const setCourses = useTacoStore((s) => s.setCourses);
+  const setSubjects = useTacoStore((s) => s.setSubjects);
   const publicRoute = isPublicRoute(pathname);
 
   // 로그인된 경우에만 역할을 앱 전역 currentRole에 반영(공개 경로에선 동기화하지 않음).
@@ -58,6 +60,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const paymentsQ = useQuery({ queryKey: qk.payments.list(), queryFn: () => api.payments.list(), enabled });
   const expensesQ = useQuery({ queryKey: qk.expenses.list(), queryFn: () => api.expenses.list(), enabled });
   const enrollmentsQ = useQuery({ queryKey: qk.enrollments.list(), queryFn: () => api.enrollments.list(), enabled });
+  const coursesQ = useQuery({ queryKey: qk.courses.list(), queryFn: () => api.courses.list(), enabled });
+  const subjectsQ = useQuery({ queryKey: qk.subjects.list(), queryFn: () => api.subjects.list(), enabled });
 
   useEffect(() => { if (payoutsQ.data) setInstructorPayouts(payoutsQ.data); }, [payoutsQ.data, setInstructorPayouts]);
   useEffect(() => { if (scheduleQ.data) setClassSessions(scheduleQ.data); }, [scheduleQ.data, setClassSessions]);
@@ -66,6 +70,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => { if (paymentsQ.data?.length) setPayments(paymentsQ.data); }, [paymentsQ.data, setPayments]);
   useEffect(() => { if (expensesQ.data?.length) setExpenses(expensesQ.data); }, [expensesQ.data, setExpenses]);
   useEffect(() => { if (enrollmentsQ.data?.length) setEnrollments(enrollmentsQ.data); }, [enrollmentsQ.data, setEnrollments]);
+  useEffect(() => { if (coursesQ.data?.length) setCourses(coursesQ.data); }, [coursesQ.data, setCourses]);
+  useEffect(() => { if (subjectsQ.data?.length) setSubjects(subjectsQ.data); }, [subjectsQ.data, setSubjects]);
 
   if (publicRoute) return <>{children}</>;
 
