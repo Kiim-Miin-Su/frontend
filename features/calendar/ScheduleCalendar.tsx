@@ -265,9 +265,34 @@ export function ScheduleCalendar() {
       setMsg(err.response?.data?.message ?? "가용/불가 저장 실패");
     }
   }
-  async function deleteBlock(id: number) {
+  // 반복 블록은 삭제 범위를 물어봄(단일 주 블록·범위 없으면 바로 삭제).
+  async function deleteBlock(id: number, weekDate?: string) {
+    const b = selBlocks.find((x) => x.id === id);
+    const singleWeek = !!(b?.effectiveFrom && b.effectiveFrom === b.effectiveTo);
+    if (b && weekDate && !singleWeek) { setBlockDelScope({ id, kind: b.kind, date: weekDate }); return; }
     if (!confirm("이 시간 블록을 삭제할까요?")) return;
     try { await api.availability.remove(id); reloadSelBlocks(); } catch { setMsg("삭제 실패"); }
+  }
+  // 삭제 범위 적용: 전체=행 삭제 · 이후=이번 주 직전까지로 컷 · 이번 주만=원본 분할(이번 주만 제거).
+  async function applyBlockDeleteScope(scope: "this" | "this_and_following" | "all") {
+    const c = blockDelScope; setBlockDelScope(null);
+    if (!c || !selected) return;
+    const orig = selBlocks.find((b) => b.id === c.id);
+    const owner = { ownerType: selected.type, ownerId: selected.id } as const;
+    try {
+      if (scope === "all" || !orig) {
+        await api.availability.remove(c.id);
+      } else if (scope === "this_and_following") {
+        await api.availability.upsert({ id: c.id, ...owner, kind: orig.kind, weekday: orig.weekday, startTime: orig.startTime, endTime: orig.endTime, effectiveFrom: orig.effectiveFrom, effectiveTo: addDaysISO(c.date, -1) });
+      } else {
+        await api.availability.upsert({ id: c.id, ...owner, kind: orig.kind, weekday: orig.weekday, startTime: orig.startTime, endTime: orig.endTime, effectiveFrom: orig.effectiveFrom, effectiveTo: addDaysISO(c.date, -1) });
+        await api.availability.upsert({ ...owner, kind: orig.kind, weekday: orig.weekday, startTime: orig.startTime, endTime: orig.endTime, effectiveFrom: addDaysISO(c.date, 7), effectiveTo: orig.effectiveTo });
+      }
+      reloadSelBlocks();
+    } catch (e) {
+      const err = e as { response?: { data?: { message?: string } } };
+      setMsg(err.response?.data?.message ?? "삭제 실패"); reloadSelBlocks();
+    }
   }
   // 블록 이동 반복 범위 적용(주간 반복 규칙을 기간으로 분할). origDate=이번 주 원위치, newDate=드롭 위치.
   async function applyBlockScope(scope: "this" | "this_and_following" | "all") {
@@ -311,6 +336,8 @@ export function ScheduleCalendar() {
   const [blockScope, setBlockScope] = useState<
     null | { id: number; kind: AvailabilityBlock["kind"]; origDate: string; newDate: string; weekday: number; startTime: string; endTime: string }
   >(null);
+  // 반복 블록 삭제 시 범위 물어보기(이번만/앞으로/전체). date=삭제 클릭한 주의 날짜.
+  const [blockDelScope, setBlockDelScope] = useState<null | { id: number; kind: AvailabilityBlock["kind"]; date: string }>(null);
 
   const bMove = (e: PointerEvent) => {
     const d = bDragRef.current; if (!d) return;
@@ -380,8 +407,9 @@ export function ScheduleCalendar() {
         const what = CONFLICT_LABEL[c.type] ?? c.type;
         // 상대 스케줄: 이중예약이면 해당 세션(과목·요일·시각·강사), 불가시간이면 백엔드 detail(겹친 불가 시각).
         const other = c.sessionId != null ? rows.find((r) => r.id === c.sessionId) : undefined;
+        // 상대 스케줄: {강사명} · {강의명} (요일 시각) — 실제 백엔드 데이터. 불가시간이면 detail(시각).
         const otherStr = other
-          ? ` — ${other.courseName} (${WD[other.weekday]} ${other.startTime ?? ""}–${other.endTime ?? ""}, ${other.instructorName})`
+          ? ` — ${other.instructorName} · ${other.courseName} (${WD[other.weekday]} ${other.startTime ?? ""}–${other.endTime ?? ""})`
           : c.detail ? ` — ${c.detail}` : "";
         return `· ${who} ${what}${otherStr}`.replace(/\s+/g, " ").trim();
       })
@@ -916,7 +944,7 @@ export function ScheduleCalendar() {
                                 {on && (
                                   <>
                                     <div onPointerDown={(e) => bDownResize(e, c, b, "top")} className="absolute left-1/2 -translate-x-1/2 top-0 w-6 h-2 rounded-b cursor-ns-resize" style={{ background: "var(--color-fg-muted)" }} />
-                                    <button onClick={(e) => { e.stopPropagation(); deleteBlock(b.id); }} className="absolute right-0.5 top-0.5 w-4 h-4 grid place-items-center rounded text-[10px] text-white" style={{ background: "var(--color-danger)" }} title="삭제">✕</button>
+                                    <button onClick={(e) => { e.stopPropagation(); deleteBlock(b.id, c.date); }} className="absolute right-0.5 top-0.5 w-4 h-4 grid place-items-center rounded text-[10px] text-white" style={{ background: "var(--color-danger)" }} title="삭제">✕</button>
                                     <div onPointerDown={(e) => bDownResize(e, c, b, "bottom")} className="absolute left-1/2 -translate-x-1/2 bottom-0 w-6 h-2 rounded-t cursor-ns-resize" style={{ background: "var(--color-fg-muted)" }} />
                                   </>
                                 )}
@@ -1072,6 +1100,14 @@ export function ScheduleCalendar() {
           label={`${blockScope.kind === "unavailable" ? "불가시간" : "가용시간"} 변경`}
           onPick={applyBlockScope}
           onCancel={() => { setBlockScope(null); reloadSelBlocks(); }}
+        />
+      )}
+
+      {blockDelScope && (
+        <RecurrencePrompt
+          label={`${blockDelScope.kind === "unavailable" ? "불가시간" : "가용시간"} 삭제`}
+          onPick={applyBlockDeleteScope}
+          onCancel={() => setBlockDelScope(null)}
         />
       )}
     </div>
@@ -1474,7 +1510,8 @@ function CreateModal({
   onCreateSeries: (bodies: ScheduleCreateBody[]) => void;
   onCreateBlock: (body: AvailabilityUpsertBody) => void;
 }) {
-  const [tab, setTab] = useState<"session" | "block">("session");
+  // 유형: 수업 / 가용 / 불가 — 셋 다 같은 날짜·시간·반복(그날만=일회성 / 매주 / 커스텀) UX.
+  const [type, setType] = useState<"session" | "available" | "unavailable">("session");
 
   // ── 수업 탭 ──
   const myCourses = lockInstructorId != null ? resources.courses.filter((c) => c.instructorId === lockInstructorId) : resources.courses;
@@ -1520,7 +1557,7 @@ function CreateModal({
   }
   function changeStart(v: string) {
     setStart(v);
-    setEnd(fromMin(toMin(v) + courseDur)); // 진행시간 유지
+    if (type === "session") setEnd(fromMin(toMin(v) + courseDur)); // 수업만 코스 진행시간으로 종료 자동
   }
   const sessionValid = courseId && date && start < end;
 
@@ -1540,32 +1577,43 @@ function CreateModal({
     [resources.instructors, instAvailable],
   );
 
-  // ── 가용·불가 탭 ──
+  // ── 가용/불가 대상(오너) — 시간·날짜·반복은 수업과 공유 ──
   const lockOwner = lockInstructorId != null;
   const [bType, setBType] = useState<"instructor" | "student" | "room">(lockOwner ? "instructor" : (defaultOwner?.type ?? "instructor"));
   const [bId, setBId] = useState<number | "">(lockOwner ? lockInstructorId! : (defaultOwner?.id ?? ""));
-  const [bKind, setBKind] = useState<"available" | "unavailable">("unavailable");
-  // 커스텀 반복: 여러 요일 동시 선택(주간 반복 블록 1개/요일 생성). 기본=기준 날짜 요일.
-  const [bWeekdays, setBWeekdays] = useState<number[]>([weekdayOf(defaultDate)]);
-  const toggleBWd = (d: number) => setBWeekdays((ws) => (ws.includes(d) ? ws.filter((x) => x !== d) : [...ws, d].sort()));
-  const [bStart, setBStart] = useState("12:00");
-  const [bEnd, setBEnd] = useState("13:00");
-  // 기간(선택): 지정하면 그 기간에만 적용, 비우면 매주 무기한 반복.
-  const [bFrom, setBFrom] = useState("");
-  const [bTo, setBTo] = useState("");
   const ownerList = bType === "instructor" ? resources.instructors : bType === "student" ? resources.students : rooms.map((r) => ({ id: r.id, name: r.name }));
-  const periodValid = !bFrom || !bTo || bFrom <= bTo;
-  const blockValid = bId !== "" && bStart < bEnd && bWeekdays.length > 0 && periodValid;
+  const blockValid = bId !== "" && start < end && (repeat !== "custom" || customWds.length > 0);
+  // 블록 생성: 반복 규칙(그날만=일회성 / 매주 / 커스텀)을 effectiveFrom·effectiveTo로 변환.
+  //  - 일회성: 그 날짜 한 주만(effectiveFrom=effectiveTo=date).
+  //  - 매주/커스텀: 선택 요일마다 date부터 종료일(untilDate)까지 반복.
+  function submitBlocks() {
+    const kind = type === "unavailable" ? "unavailable" : "available";
+    const base = { ownerType: bType, ownerId: Number(bId), kind, startTime: start, endTime: end } as const;
+    if (repeat === "none") {
+      onCreateBlock({ ...base, weekday: weekdayOf(date), effectiveFrom: date, effectiveTo: date });
+    } else {
+      const wds = repeat === "weekly" ? [weekdayOf(date)] : customWds;
+      wds.forEach((wd) => onCreateBlock({ ...base, weekday: wd, effectiveFrom: date, effectiveTo: untilDate }));
+    }
+  }
+  function submitSession() {
+    const seriesId = repeat === "none" ? undefined : Date.now();
+    const mk = (d: string): ScheduleCreateBody => ({ courseId, instructorId: lockInstructorId ?? (instructorId || undefined), roomId: roomId || undefined, sessionDate: d, startTime: start, endTime: end, memo: memo || undefined, color, status, seriesId });
+    const days = occurrences();
+    if (days.length <= 1) onCreate(mk(days[0] ?? date));
+    else onCreateSeries(days.map(mk));
+  }
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center" style={{ background: "rgba(0,0,0,.35)" }} onClick={onClose}>
       <div className="card card-pad w-[440px] space-y-3" onClick={(e) => e.stopPropagation()}>
         <div className="flex rounded-md overflow-hidden border" style={{ borderColor: "var(--color-line)" }}>
-          <button className={`btn btn-sm flex-1 rounded-none border-0 ${tab === "session" ? "badge-accent" : ""}`} onClick={() => setTab("session")}>수업</button>
-          <button className={`btn btn-sm flex-1 rounded-none border-0 ${tab === "block" ? "badge-accent" : ""}`} onClick={() => setTab("block")}>가용 · 불가</button>
+          {([["session", "수업"], ["available", "가용"], ["unavailable", "불가"]] as const).map(([v, lbl]) => (
+            <button key={v} className={`btn btn-sm flex-1 rounded-none border-0 ${type === v ? "badge-accent" : ""}`} onClick={() => setType(v)}>{lbl}</button>
+          ))}
         </div>
 
-        {tab === "session" ? (
+        {type === "session" ? (
           <>
             {lockedInstructorName && <div className="text-[12px] text-fg-muted">{lockedInstructorName} (내 수업)</div>}
             <Field label="코스">
@@ -1635,21 +1683,14 @@ function CreateModal({
             )}
             <div className="flex justify-end gap-2 pt-1">
               <button className="btn" onClick={onClose}>취소</button>
-              <button className="btn btn-primary" disabled={!sessionValid || (repeat !== "none" && occurrences().length === 0)}
-                onClick={() => {
-                  const seriesId = repeat === "none" ? undefined : Date.now();
-                  const mk = (d: string): ScheduleCreateBody => ({ courseId, instructorId: lockInstructorId ?? (instructorId || undefined), roomId: roomId || undefined, sessionDate: d, startTime: start, endTime: end, memo: memo || undefined, color, status, seriesId });
-                  const days = occurrences();
-                  if (days.length <= 1) onCreate(mk(days[0] ?? date));
-                  else onCreateSeries(days.map(mk));
-                }}>
+              <button className="btn btn-primary" disabled={!sessionValid || (repeat !== "none" && occurrences().length === 0)} onClick={submitSession}>
                 {repeat === "none" ? "수업 추가" : `반복 추가 (${occurrences().length}회)`}
               </button>
             </div>
           </>
         ) : (
           <>
-            <p className="text-[12px] text-fg-muted">주간 반복 가용/불가 시간을 설정합니다. 요일 여러 개 선택 · 기간(선택) 지정 가능.</p>
+            {lockedInstructorName && <div className="text-[12px] text-fg-muted">{lockedInstructorName} (본인)</div>}
             <div className="grid grid-cols-2 gap-3">
               <Field label="대상">
                 <select className="input" value={bType} disabled={lockOwner}
@@ -1666,37 +1707,41 @@ function CreateModal({
                 </select>
               </Field>
             </div>
+            <Field label="날짜"><input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="종류">
-                <select className="input" value={bKind} onChange={(e) => setBKind(e.target.value as typeof bKind)}>
-                  <option value="unavailable">불가(차단)</option>
-                  <option value="available">가용</option>
-                </select>
-              </Field>
-              <Field label="요일(여러 개 선택 가능)">
+              <Field label="시작"><input type="time" step={900} className="input" value={start} onChange={(e) => changeStart(e.target.value)} /></Field>
+              <Field label="종료"><input type="time" step={900} className="input" value={end} onChange={(e) => setEnd(e.target.value)} /></Field>
+            </div>
+            {/* 반복: 일회성(기본)/매주/커스텀 — 수업과 동일 */}
+            <Field label="반복">
+              <div className="flex rounded-md overflow-hidden border" style={{ borderColor: "var(--color-line)" }}>
+                {([["none", "일회성"], ["weekly", "매주"], ["custom", "커스텀"]] as const).map(([v, lbl]) => (
+                  <button key={v} type="button" onClick={() => setRepeat(v)}
+                    className={`btn btn-sm flex-1 rounded-none border-0 ${repeat === v ? "badge-accent" : ""}`}>{lbl}</button>
+                ))}
+              </div>
+            </Field>
+            {repeat === "custom" && (
+              <Field label="요일">
                 <div className="flex gap-1">
-                  {WD.map((w, i) => (
-                    <button key={i} type="button" onClick={() => toggleBWd(i)}
-                      className={`w-8 h-8 rounded text-[12px] border ${bWeekdays.includes(i) ? "badge-accent" : ""}`}
+                  {WD.map((w, d) => (
+                    <button key={d} type="button" onClick={() => toggleWd(d)}
+                      className={`w-8 h-8 rounded text-[12px] border ${customWds.includes(d) ? "badge-accent" : ""}`}
                       style={{ borderColor: "var(--color-line)" }}>{w}</button>
                   ))}
                 </div>
               </Field>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="시작"><input type="time" step={900} className="input" value={bStart} onChange={(e) => setBStart(e.target.value)} /></Field>
-              <Field label="종료"><input type="time" step={900} className="input" value={bEnd} onChange={(e) => setBEnd(e.target.value)} /></Field>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="기간 시작 (선택)"><input type="date" className="input" value={bFrom} onChange={(e) => setBFrom(e.target.value)} /></Field>
-              <Field label="기간 종료 (선택)"><input type="date" className="input" value={bTo} onChange={(e) => setBTo(e.target.value)} /></Field>
-            </div>
-            {!periodValid && <p className="text-[12px]" style={{ color: "var(--color-danger)" }}>기간 시작이 종료보다 늦을 수 없습니다.</p>}
+            )}
+            {repeat !== "none" && (
+              <Field label="반복 종료일">
+                <input type="date" className="input" value={untilDate} min={date} onChange={(e) => setUntilDate(e.target.value)} />
+              </Field>
+            )}
+            <p className="text-[12px] text-fg-muted">{repeat === "none" ? "일회성 — 이 날짜에 한 번만 적용." : "매주 반복 — 이 날짜부터 종료일까지."}</p>
             <div className="flex justify-end gap-2 pt-1">
               <button className="btn" onClick={onClose}>취소</button>
-              <button className="btn btn-primary" disabled={!blockValid}
-                onClick={() => bWeekdays.forEach((wd) => onCreateBlock({ ownerType: bType, ownerId: Number(bId), kind: bKind, weekday: wd, startTime: bStart, endTime: bEnd, effectiveFrom: bFrom || undefined, effectiveTo: bTo || undefined }))}>
-                {bKind === "unavailable" ? "불가시간" : "가용시간"} 추가{bWeekdays.length > 1 ? ` (${bWeekdays.length}일)` : ""}
+              <button className="btn btn-primary" disabled={!blockValid} onClick={submitBlocks}>
+                {type === "unavailable" ? "불가시간" : "가용시간"} 추가
               </button>
             </div>
           </>
