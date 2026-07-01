@@ -128,6 +128,8 @@ type TacoState = {
   setAcademyEvents: (rows: AcademyEvent[]) => void;
   setRoadmaps: (rows: Roadmap[]) => void;
   setRoadmapCourses: (rows: RoadmapCourse[]) => void;
+  setParents: (rows: Parent[]) => void;
+  setParentStudents: (rows: ParentStudent[]) => void;
   addSubject: (input: CreateSubjectInput) => Subject;
   addCourse: (input: CreateCourseInput) => Course;
   addRoadmap: (input: CreateRoadmapInput) => Roadmap;
@@ -569,6 +571,8 @@ export const useTacoStore = create<TacoState>((set) => ({
   setAcademyEvents: (rows) => set({ academyEvents: rows }),
   setRoadmaps: (rows) => set({ roadmaps: rows }),
   setRoadmapCourses: (rows) => set({ roadmapCourses: rows }),
+  setParents: (rows) => set({ parents: rows }),
+  setParentStudents: (rows) => set({ parentStudents: rows }),
 
   // 기간 + 요일 반복으로 수업 다건 생성 (캘린더 표시용)
   addRecurringClassSessions: (input) => {

@@ -51,6 +51,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const setAttendanceList = useTacoStore((s) => s.setAttendanceList);
   const setRoadmaps = useTacoStore((s) => s.setRoadmaps);
   const setRoadmapCourses = useTacoStore((s) => s.setRoadmapCourses);
+  const setParents = useTacoStore((s) => s.setParents);
+  const setParentStudents = useTacoStore((s) => s.setParentStudents);
   const publicRoute = isPublicRoute(pathname);
 
   // 로그인된 경우에만 역할을 앱 전역 currentRole에 반영(공개 경로에선 동기화하지 않음).
@@ -81,6 +83,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const attendanceQ = useQuery({ queryKey: qk.attendance.list(), queryFn: () => api.attendance.list(), enabled });
   const roadmapsQ = useQuery({ queryKey: qk.roadmaps.list(), queryFn: () => api.roadmaps.list(), enabled });
   const roadmapCoursesQ = useQuery({ queryKey: qk.roadmaps.courses(), queryFn: () => api.roadmaps.courses(), enabled });
+  const parentsQ = useQuery({ queryKey: qk.parents.list(), queryFn: () => api.parents.list(), enabled });
+  const parentStudentsQ = useQuery({ queryKey: qk.parents.relations(), queryFn: () => api.parents.relations(), enabled });
 
   useEffect(() => { if (payoutsQ.data) setInstructorPayouts(payoutsQ.data); }, [payoutsQ.data, setInstructorPayouts]);
   useEffect(() => { if (scheduleQ.data) setClassSessions(scheduleQ.data); }, [scheduleQ.data, setClassSessions]);
@@ -98,6 +102,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => { if (attendanceQ.data) setAttendanceList(attendanceQ.data); }, [attendanceQ.data, setAttendanceList]);
   useEffect(() => { if (roadmapsQ.data?.length) setRoadmaps(roadmapsQ.data); }, [roadmapsQ.data, setRoadmaps]);
   useEffect(() => { if (roadmapCoursesQ.data?.length) setRoadmapCourses(roadmapCoursesQ.data); }, [roadmapCoursesQ.data, setRoadmapCourses]);
+  useEffect(() => { if (parentsQ.data?.length) setParents(parentsQ.data); }, [parentsQ.data, setParents]);
+  useEffect(() => { if (parentStudentsQ.data?.length) setParentStudents(parentStudentsQ.data); }, [parentStudentsQ.data, setParentStudents]);
 
   if (publicRoute) return <>{children}</>;
 

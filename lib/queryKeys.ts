@@ -40,4 +40,9 @@ export const qk = {
     list: () => ["roadmaps", "list"] as const,
     courses: () => ["roadmaps", "courses"] as const,
   },
+  parents: {
+    all: ["parents"] as const,
+    list: () => ["parents", "list"] as const,
+    relations: () => ["parents", "relations"] as const,
+  },
 } as const;

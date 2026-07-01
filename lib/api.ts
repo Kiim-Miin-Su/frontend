@@ -22,6 +22,8 @@ import type {
   Roadmap,
   RoadmapCourse,
   CreateRoadmapInput,
+  Parent,
+  ParentStudent,
   CreateStudentInput,
   CreateEnrollmentInput,
   WebIdCheckResult,
@@ -198,6 +200,10 @@ export const api = {
     list: () => http.get<Roadmap[]>("/roadmaps").then((r) => r.data),
     courses: () => http.get<RoadmapCourse[]>("/roadmaps/courses").then((r) => r.data),
     create: (input: CreateRoadmapInput) => http.post<Roadmap>("/roadmaps", input).then((r) => r.data),
+  },
+  parents: {
+    list: () => http.get<Parent[]>("/parents").then((r) => r.data),
+    relations: () => http.get<ParentStudent[]>("/parents/relations").then((r) => r.data),
   },
   users: {
     // web id 존재 확인 (등록 폼 "확인하기")
