@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { Attendance, ScheduleRow } from '@/types';
 import {
   buildSplitColumns,
+  cloneSessionBody,
   groupSessions,
   isGroupSession,
   matchesStatusFilter,
@@ -145,6 +146,36 @@ describe('buildSplitColumns — (날짜 × 리소스) 스플릿 컬럼', () => {
     const cols = buildSplitColumns(['2026-07-06'], 'room', picks);
     expect(cols.map((c) => c.roomId)).toEqual([1, 2]);
     expect(buildSplitColumns(['2026-07-06'], 'instructor', picks).every((c) => c.roomId === undefined)).toBe(true);
+  });
+});
+
+describe('cloneSessionBody — Ctrl+C/V·Ctrl+드래그 복제(무결성 규칙)', () => {
+  const src = row({ courseId: 10, instructorId: 1, roomId: 2, durationMinutes: 90, topic: '주제', memo: 'm', color: '#111111', seriesId: 7, status: 'held', instructorAttendance: 'present' });
+
+  it('시작=커서 시각, 길이 유지, status=scheduled 고정(진행 이력·출결·시리즈 미승계)', () => {
+    const b = cloneSessionBody(src, { date: '2026-07-08', startMin: 14 * 60 + 30 });
+    expect(b).toMatchObject({
+      courseId: 10, instructorId: 1, roomId: 2, sessionDate: '2026-07-08',
+      startTime: '14:30', endTime: '16:00', status: 'scheduled', topic: '주제', memo: 'm', color: '#111111',
+    });
+    expect('seriesId' in b).toBe(false);
+    expect('instructorAttendance' in b).toBe(false);
+  });
+
+  it('스플릿 강사 컬럼에 붙여넣기 → 그 강사로 재배정', () => {
+    expect(cloneSessionBody(src, { date: '2026-07-08', startMin: 600, resType: 'instructor', resId: 2 }).instructorId).toBe(2);
+  });
+
+  it('강의실 컬럼(스플릿 room 또는 일간 roomid) → 그 강의실로, 학생 컬럼은 재배정 없음', () => {
+    expect(cloneSessionBody(src, { date: '2026-07-08', startMin: 600, resType: 'room', resId: 3 }).roomId).toBe(3);
+    expect(cloneSessionBody(src, { date: '2026-07-08', startMin: 600, roomId: 4 }).roomId).toBe(4);
+    const st = cloneSessionBody(src, { date: '2026-07-08', startMin: 600, resType: 'student', resId: 9 });
+    expect(st.instructorId).toBe(1);
+    expect(st.roomId).toBe(2);
+  });
+
+  it('강의실 미지정 원본은 미지정 유지', () => {
+    expect(cloneSessionBody(row({ roomId: undefined }), { date: '2026-07-08', startMin: 600 }).roomId).toBeUndefined();
   });
 });
 

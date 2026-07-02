@@ -8,6 +8,7 @@
 //  - 여기는 데이터 파생만. fetch/상태/렌더 없음(단위 테스트 용이 — lantiv.test.ts).
 // ──────────────────────────────────────────────────────────────
 import type { ScheduleRow, Attendance } from '@/types';
+import { fromMin } from './schedule';
 
 // ── 뷰 공통 상수(색·라벨) — ScheduleCalendar/우측 패널이 공유(단일 소스) ──
 export const PALETTE = ['#0969da', '#1a7f37', '#8250df', '#bf3989', '#9a6700', '#1b7c83'];
@@ -137,6 +138,48 @@ export function buildSplitColumns(dates: string[], dim: SplitDim, picks: SplitPi
     });
   }
   return out;
+}
+
+// ── 복제(Ctrl+C/V · Ctrl+드래그) — Lantiv 셀 복제 대응 ──
+// 커서 셀(빈 공간 클릭 지점) 또는 드롭 지점을 대상으로 원본 세션의 복제 생성 바디를 만든다.
+export type PasteTarget = {
+  date: string;
+  startMin: number; // 스냅된 시작 시각(분)
+  resType?: SplitDim; // 스플릿 컬럼이면 그 컬럼 리소스로 재배정(강사/강의실)
+  resId?: number;
+  roomId?: number; // 일간(강의실) 컬럼의 roomid 데이터셋
+};
+
+/**
+ * 세션 복제 바디(POST /schedule 입력) — 참조 무결성 규칙:
+ *  - 복제본은 **단건**(seriesId 승계 안 함) · status='scheduled' 고정(진행 이력 아님).
+ *  - 출결(instructorAttendance)·리포트·정산 연결은 승계하지 않음(시수 이중 계상 방지).
+ *  - 스플릿 강사 컬럼에 붙이면 그 강사로 재배정(백엔드 FK·충돌 검증 통과 필요).
+ *    학생 컬럼은 재배정 없음(코호트=enrollment 파생) — 원본 코스 그대로.
+ *  - durationMinutes 유지, 시작시각 = 커서(클릭) 시각.
+ */
+export function cloneSessionBody(
+  src: Pick<ScheduleRow, 'courseId' | 'instructorId' | 'roomId' | 'durationMinutes' | 'topic' | 'memo' | 'color'>,
+  t: PasteTarget,
+): {
+  courseId: number; instructorId: number; roomId?: number; sessionDate: string;
+  startTime: string; endTime: string; topic?: string; memo?: string; color?: string; status: 'scheduled';
+} {
+  const instructorId = t.resType === 'instructor' && t.resId != null ? t.resId : Number(src.instructorId);
+  const roomId =
+    t.resType === 'room' && t.resId != null ? t.resId : (t.roomId ?? (src.roomId != null ? Number(src.roomId) : undefined));
+  return {
+    courseId: Number(src.courseId),
+    instructorId,
+    roomId,
+    sessionDate: t.date,
+    startTime: fromMin(t.startMin),
+    endTime: fromMin(t.startMin + src.durationMinutes),
+    topic: src.topic,
+    memo: src.memo,
+    color: src.color,
+    status: 'scheduled',
+  };
 }
 
 /** 행이 컬럼 리소스에 속하는가 — 학생은 코호트(studentIds) 포함 여부(참조 무결성: enrollment 파생). */

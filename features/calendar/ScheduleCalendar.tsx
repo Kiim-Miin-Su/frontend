@@ -6,8 +6,8 @@ import { api, type SchedulePatchBody, type ScheduleCreateBody, type Availability
 import { weekDates, weekdayOf, layoutLanes, teachingHours, toMin as toMinD, ownerWindows } from "@/lib/domain/schedule";
 import {
   PALETTE, STATUS_LABEL, MAX_SPLIT,
-  matchesStatusFilter, isGroupSession, sortByDateAsc, buildSplitColumns, rowInResource,
-  type StatusFilter, type SplitDim, type ListGroupBy,
+  matchesStatusFilter, isGroupSession, sortByDateAsc, buildSplitColumns, rowInResource, cloneSessionBody,
+  type StatusFilter, type SplitDim, type ListGroupBy, type PasteTarget,
 } from "@/lib/domain/lantiv";
 import { useAttendance } from "@/lib/queries";
 import { exportNodeAsImage } from "@/lib/export";
@@ -111,6 +111,11 @@ export function ScheduleCalendar() {
   // 우측 패널: 리스트에서 클릭한 세션(아래 상세) + 그룹 토글
   const [detailId, setDetailId] = useState<number | null>(null);
   const [listGrouped, setListGrouped] = useState(false);
+
+  // ── 복제(Lantiv, 피드백 2026-07-02): 빈 셀 클릭=커서(시각 표시) · Ctrl+C/V · Ctrl+드래그 ──
+  // 커서 = 붙여넣기 대상(시작시각). 클립보드는 세션 스냅샷(로컬 상태 — OS 클립보드 아님).
+  const [cursor, setCursor] = useState<PasteTarget & { colKey: string } | null>(null);
+  const [clip, setClip] = useState<ScheduleRow | null>(null);
 
   // 학생 출결(GET /attendance) — 상태 필터(지각/결강)의 학생 축. 세션id → 출결행 조인.
   const { data: attendanceRows = [] } = useAttendance();
@@ -619,6 +624,39 @@ export function ScheduleCalendar() {
     }
   }
 
+  // 붙여넣기 — 커서 시각을 시작으로 복제 생성(cloneSessionBody: 단건·scheduled·출결/시리즈 미승계).
+  //  충돌·FK·권한(강사=본인 강제)은 기존 createSession 경로 재사용(409 confirm force).
+  function pasteAt(src: ScheduleRow, target: PasteTarget) {
+    createSession(cloneSessionBody(src, target));
+  }
+
+  // 키보드: Ctrl/⌘+C=선택 수업 복사 · Ctrl/⌘+V=커서 위치 붙여넣기 · Esc=커서·선택 해제.
+  //  입력 요소 포커스 중에는 무시(폼 타이핑 방해 금지).
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === "c") {
+        const r = rows.find((x) => x.id === selEvent);
+        if (!r) return;
+        setClip(r);
+        setMsg(`복사됨 — ${r.courseName} (${r.durationMinutes}분) · 빈 시간을 클릭한 뒤 Ctrl+V`);
+      } else if (mod && e.key.toLowerCase() === "v") {
+        if (!canAdd) return;
+        if (!clip) { setMsg("복사된 수업이 없습니다 — 수업을 클릭하고 Ctrl+C"); return; }
+        if (!cursor) { setMsg("붙여넣을 빈 시간을 먼저 클릭하세요"); return; }
+        e.preventDefault();
+        pasteAt(clip, cursor);
+      } else if (e.key === "Escape") {
+        setCursor(null); setSelEvent(null); setSelBand(null);
+      }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, selEvent, clip, cursor, canAdd]);
+
   // 다운로드 파일명: {선택유저명+역할}_{YYMMDD}_{뷰}.ext  (예: 김민수강사_260630_weekly.png)
   // 우측 패널에서 자원을 고르면 그 자원, 아니면 로그인한 본인(토큰), 그것도 없으면 전체스케줄.
   function downloadName(ext: string) {
@@ -652,11 +690,12 @@ export function ScheduleCalendar() {
   // ── 드래그 이동(포인터 기반 라이브 프리뷰, 30분 스냅 — 구글/애플 캘린더식) ──
   const SNAP_MOVE = 30;
   const snapMove = (m: number) => Math.round(m / SNAP_MOVE) * SNAP_MOVE;
-  const [moveDrag, setMoveDrag] = useState<{ id: number; colKey: string; start: number; dur: number; color: string } | null>(null);
+  const [moveDrag, setMoveDrag] = useState<{ id: number; colKey: string; start: number; dur: number; color: string; copy: boolean } | null>(null);
   const moveRef = useRef<{
     id: number; row: ScheduleRow; dur: number; grab: number; startClientY: number; moved: boolean;
     colKey: string; date: string; roomId?: number; start: number;
     resType?: SplitDim; resId?: number; // 스플릿 컬럼 드롭 — instructor면 강사 재배정(백엔드 FK·충돌 검증)
+    copy: boolean; // Ctrl/⌘+드래그 = 이동 대신 복제(Lantiv 셀 복제)
   } | null>(null);
   const suppressClickRef = useRef(false);
 
@@ -675,7 +714,7 @@ export function ScheduleCalendar() {
     d.resType = (cell.dataset.restype || undefined) as SplitDim | undefined;
     d.resId = cell.dataset.resid ? Number(cell.dataset.resid) : undefined;
     d.start = start;
-    setMoveDrag({ id: d.id, colKey: d.colKey, start, dur: d.dur, color: colorOf(d.row) });
+    setMoveDrag({ id: d.id, colKey: d.colKey, start, dur: d.dur, color: colorOf(d.row), copy: d.copy });
   };
   const onMoveUp = () => {
     window.removeEventListener("pointermove", onMovePointer);
@@ -685,6 +724,11 @@ export function ScheduleCalendar() {
     if (!d || !d.moved) return;
     suppressClickRef.current = true;
     const r = d.row;
+    // Ctrl+드래그 = 복제(원본 유지, 드롭 지점에 새 세션) — cloneSessionBody 무결성 규칙 적용.
+    if (d.copy) {
+      pasteAt(r, { date: d.date, startMin: d.start, resType: d.resType, resId: d.resId, roomId: d.roomId });
+      return;
+    }
     const newRoom = d.roomId ?? r.roomId;
     // 스플릿(강사) 컬럼으로 드롭 → 강사 재배정. 학생 컬럼은 재배정 없음(코호트는 enrollment 파생 — 무결성).
     const newInstructor = d.resType === "instructor" && d.resId != null ? d.resId : r.instructorId;
@@ -705,6 +749,7 @@ export function ScheduleCalendar() {
     moveRef.current = {
       id: r.id, row: r, dur: r.durationMinutes, grab, startClientY: e.clientY, moved: false,
       colKey: "", date: r.sessionDate, roomId: r.roomId, start: startMinOf(r),
+      copy: e.ctrlKey || e.metaKey, // Ctrl/⌘ 누른 채 드래그 = 복제
     };
     window.addEventListener("pointermove", onMovePointer);
     window.addEventListener("pointerup", onMoveUp, { once: true });
@@ -785,7 +830,7 @@ export function ScheduleCalendar() {
         <div>
           <h1 className="text-[20px] font-semibold">스케줄 캘린더</h1>
           <p className="text-[13px] text-fg-muted mt-0.5">
-            드래그 이동 · 끝을 끌어 시간 조절 · 클릭 상세 · {periodLabel}
+            드래그 이동 · Ctrl+드래그 복제 · Ctrl+C/V 복사·붙여넣기 · 빈 시간 클릭=커서 · {periodLabel}
             <span className="text-fg-subtle">
               {" "}
               · {filtered.length}건{anyFilter ? ` / 전체 ${rows.length}` : ""} · 시수 {hrs.hours}h
@@ -1008,7 +1053,14 @@ export function ScheduleCalendar() {
                               height: GRID_H,
                               backgroundImage: `repeating-linear-gradient(to bottom, var(--color-line) 0, var(--color-line) 1px, transparent 1px, transparent ${HOUR_H}px), repeating-linear-gradient(to bottom, transparent 0, transparent ${HOUR_H / 2}px, var(--color-line-muted) ${HOUR_H / 2}px, var(--color-line-muted) ${HOUR_H / 2 + 1}px, transparent ${HOUR_H / 2 + 1}px, transparent ${HOUR_H}px)`,
                             }}
-                            onClick={(e) => { if (e.target === e.currentTarget) { setSelEvent(null); setSelBand(null); } }}
+                            onClick={(e) => {
+                              if (e.target !== e.currentTarget) return;
+                              setSelEvent(null); setSelBand(null);
+                              // 빈 공간 클릭 = 커서 셀(Lantiv): 클릭 시각(30분 스냅) 표시 + 붙여넣기 대상.
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              const min = clampMin(snapMove(GRID_MIN + ((e.clientY - rect.top) / HOUR_H) * 60));
+                              setCursor({ colKey: c.key, date: c.date, startMin: min, resType: c.resType, resId: c.resId, roomId: c.roomId });
+                            }}
                           >
                             {/* 가용(초록)/불가(회색) 밴드 — 클릭=선택 · 끝 드래그=시간 조절 · ✕=삭제 (스케줄처럼 관리) */}
                             {bands.map((b) => {
@@ -1058,6 +1110,24 @@ export function ScheduleCalendar() {
                                 background: "rgba(110,118,129,.30)", border: "1px dashed var(--color-fg-subtle)",
                               }} />
                             )}
+                            {/* 커서 셀(빈 공간 클릭): 시각 배지 + (클립보드 있으면) 붙여넣기 미리보기 고스트 */}
+                            {cursor && cursor.colKey === c.key && (
+                              <div className="absolute left-0 right-0 z-10 pointer-events-none" style={{ top: ((cursor.startMin - GRID_MIN) / 60) * HOUR_H }}>
+                                <div className="h-0.5" style={{ background: "var(--color-accent)" }} />
+                                <span className="absolute left-1 -top-2.5 px-1 rounded text-[10px] text-white mono" style={{ background: "var(--color-accent)" }}>
+                                  {fromMin(cursor.startMin)}{clip ? " · Ctrl+V" : ""}
+                                </span>
+                                {clip && (
+                                  <div
+                                    className="absolute left-0.5 right-0.5 rounded-lg"
+                                    style={{
+                                      top: 2, height: Math.max(18, (clip.durationMinutes / 60) * HOUR_H) - 2,
+                                      background: colorOf(clip), opacity: 0.25, border: "1.5px dashed var(--color-accent)",
+                                    }}
+                                  />
+                                )}
+                              </div>
+                            )}
                             {/* 이벤트 이동 라이브 고스트(30분 스냅) */}
                             {moveDrag && moveDrag.colKey === c.key && (
                               <div className="absolute left-0.5 right-0.5 z-30 pointer-events-none rounded-lg text-white text-[11px] px-1.5 py-1 ring-2 ring-white" style={{
@@ -1099,7 +1169,8 @@ export function ScheduleCalendar() {
                                     left: `calc(${ln.lane * wPct}% + 2px)`,
                                     width: `calc(${wPct}% - 4px)`,
                                     background: colorOf(r),
-                                    opacity: moveDrag?.id === r.id ? 0.35 : 1,
+                                    // 이동 중엔 원본을 흐리게, Ctrl+복제 중엔 원본 유지(복제임을 시각화)
+                                    opacity: moveDrag?.id === r.id && !moveDrag.copy ? 0.35 : 1,
                                     outline: selEvent === r.id ? "2px solid var(--color-accent)" : undefined,
                                     outlineOffset: selEvent === r.id ? "1px" : undefined,
                                   }}

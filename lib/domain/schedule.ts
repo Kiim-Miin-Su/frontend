@@ -5,10 +5,14 @@
 import type { ClassSession, AvailabilityBlock, Conflict, ID } from '@/types';
 
 const pad = (n: number) => String(n).padStart(2, '0');
+/** 2자리 패딩 — 뷰 유틸 공용(감사 D: 파일별 중복 pad 통일용 export). */
+export const pad2 = pad;
 export const toMin = (hhmm: string): number => {
   const [h, m] = hhmm.split(':').map(Number);
   return h * 60 + m;
 };
+/** 분 → 'HH:mm' — toMin의 역함수(감사 D: 파일별 중복 fromMin 통일용 export). */
+export const fromMin = (mm: number): string => `${pad(Math.floor(mm / 60))}:${pad(mm % 60)}`;
 export const addMinutes = (hhmm: string, mins: number): string => {
   const t = toMin(hhmm) + mins;
   return `${pad(Math.floor(t / 60))}:${pad(t % 60)}`;
