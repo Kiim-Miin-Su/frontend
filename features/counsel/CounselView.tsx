@@ -1,14 +1,15 @@
 'use client';
 import Link from 'next/link';
 import { Badge, SectionCard } from '@/components/ui';
-import { useTacoStore } from '@/lib/store';
+// 서버 상태(상담 폼·회차)는 TanStack Query 훅에서 구독한다(zustand store 대체).
+import { useCounselForms, useCounselRounds } from '@/lib/queries';
 import { CounselForm } from './CounselForm';
 import { CounselCalendar } from './CounselCalendar';
 import { statusLabel, statusTone, sourceLabel } from './labels';
 
 export function CounselView() {
-  const forms = useTacoStore((s) => s.counselForms);
-  const rounds = useTacoStore((s) => s.counselRounds);
+  const { data: forms = [] } = useCounselForms();
+  const { data: rounds = [] } = useCounselRounds();
   const roundCount = (formId: number) => rounds.filter((r) => r.counselFormId === formId).length;
 
   return (

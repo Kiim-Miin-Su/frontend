@@ -1,6 +1,9 @@
 "use client";
+// 목록 데이터(students·enrollments·courses·parentStudents·parents)는 TanStack Query로 읽고,
+// dropStudent는 백엔드 훅이 없는 클라이언트 상태 액션이라 store에 그대로 둔다.
 import { Badge, SectionCard, StatusDot, type Tone } from "@/components/ui";
 import { useTacoStore } from "@/lib/store";
+import { useStudents, useEnrollments, useCourses, useParentStudents, useParents } from "@/lib/queries";
 import { isActiveStudent } from "@/lib/domain/students";
 import type { StudentStatus } from "@/types";
 import { StudentForm } from "./StudentForm";
@@ -22,11 +25,11 @@ const label: Record<StudentStatus, string> = {
 };
 
 export function StudentsView() {
-  const students = useTacoStore((s) => s.students);
-  const enrollments = useTacoStore((s) => s.enrollments);
-  const courses = useTacoStore((s) => s.courses);
-  const parentStudents = useTacoStore((s) => s.parentStudents);
-  const parents = useTacoStore((s) => s.parents);
+  const { data: students = [] } = useStudents();
+  const { data: enrollments = [] } = useEnrollments();
+  const { data: courses = [] } = useCourses();
+  const { data: parentStudents = [] } = useParentStudents();
+  const { data: parents = [] } = useParents();
   const dropStudent = useTacoStore((s) => s.dropStudent);
   const [q, setQ] = useState("");
   const [showDropped, setShowDropped] = useState(false);

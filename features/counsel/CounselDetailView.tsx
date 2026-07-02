@@ -2,13 +2,18 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Badge, SectionCard } from '@/components/ui';
-import { useTacoStore } from '@/lib/store';
+// 읽기(폼·회차·과목·코스)/쓰기(수정·상태변경·회차추가)는 TanStack Query 훅 경유(zustand store 대체).
+import {
+  useCounselForms, useCounselRounds, useSubjects, useCourses,
+  useUpdateCounsel, useCreateCounselRound,
+} from '@/lib/queries';
 import type {
   CounselStatus,
   DesiredStartTime,
   LearningAtmosphere,
   StudentIntention,
   CounselResult,
+  UpdateCounselInput,
 } from '@/types';
 import {
   statusLabel, statusTone, sourceLabel, resultLabel, resultTone,
@@ -16,8 +21,13 @@ import {
 } from './labels';
 
 export function CounselDetailView({ counselId }: { counselId: number }) {
-  const store = useTacoStore();
-  const form = store.counselForms.find((f) => f.id === counselId);
+  const { data: forms = [] } = useCounselForms();
+  const { data: rounds = [] } = useCounselRounds();
+  const { data: subjects = [] } = useSubjects();
+  const { data: courses = [] } = useCourses();
+  const updateCounsel = useUpdateCounsel();
+  const createRound = useCreateCounselRound();
+  const form = forms.find((f) => f.id === counselId);
 
   const [round, setRound] = useState({ summary: '', detail: '', result: '', nextAction: '' });
 
@@ -30,18 +40,29 @@ export function CounselDetailView({ counselId }: { counselId: number }) {
     );
   }
 
-  const patch = (p: Parameters<typeof store.updateCounselForm>[1]) => store.updateCounselForm(form.id, p);
-  const rounds = store.counselRounds.filter((r) => r.counselFormId === form.id).sort((a, b) => a.roundNo - b.roundNo);
+  // 백엔드 UpdateCounselInput은 일부 필드(status·담당·관심과목/코스·기대·약점)만 허용 → 허용 키만 전송.
+  //  (applicantName/phone·다음상담일·희망시기 등은 백엔드 patch 미지원: 폼 UI는 유지하되 전송되지 않음)
+  const patch = (p: Partial<typeof form>) => {
+    const allowed: (keyof UpdateCounselInput)[] = [
+      'status', 'assignedStaffId', 'interestSubjectId', 'interestCourseId', 'academyExpectation', 'weakness',
+    ];
+    const body: UpdateCounselInput = {};
+    for (const k of allowed) {
+      if (k in p && p[k] !== undefined) (body as Record<string, unknown>)[k] = p[k as keyof typeof p];
+    }
+    if (Object.keys(body).length) updateCounsel.mutate({ id: form.id, patch: body });
+  };
+  const formRounds = rounds.filter((r) => r.counselFormId === form.id).sort((a, b) => a.roundNo - b.roundNo);
 
   const addRound = () => {
     if (!round.summary.trim() && !round.detail.trim()) return;
-    store.addCounselRound(form.id, {
+    createRound.mutate({ formId: form.id, input: {
       counselorId: form.assignedStaffId,
       summary: round.summary.trim() || undefined,
       detail: round.detail.trim() || undefined,
       result: (round.result || undefined) as CounselResult | undefined,
       nextAction: round.nextAction.trim() || undefined,
-    });
+    } });
     setRound({ summary: '', detail: '', result: '', nextAction: '' });
   };
 
@@ -61,7 +82,7 @@ export function CounselDetailView({ counselId }: { counselId: number }) {
         title="상담카드 (편집)"
         action={
           <select className="input btn-sm w-28" value={form.status}
-            onChange={(e) => store.updateCounselStatus(form.id, e.target.value as CounselStatus)}>
+            onChange={(e) => updateCounsel.mutate({ id: form.id, patch: { status: e.target.value as CounselStatus } })}>
             {STATUSES.map((s) => (<option key={s} value={s}>{statusLabel[s]}</option>))}
           </select>
         }
@@ -75,13 +96,13 @@ export function CounselDetailView({ counselId }: { counselId: number }) {
           <Field label="관심 과목">
             <select className="input" value={form.interestSubjectId ?? ''} onChange={(e) => patch({ interestSubjectId: e.target.value ? Number(e.target.value) : undefined })}>
               <option value="">선택 안 함</option>
-              {store.subjects.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+              {subjects.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
             </select>
           </Field>
           <Field label="관심 코스">
             <select className="input" value={form.interestCourseId ?? ''} onChange={(e) => patch({ interestCourseId: e.target.value ? Number(e.target.value) : undefined })}>
               <option value="">선택 안 함</option>
-              {store.courses.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
+              {courses.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
             </select>
           </Field>
           <Field label="희망 시작 시기">
@@ -119,9 +140,9 @@ export function CounselDetailView({ counselId }: { counselId: number }) {
       </SectionCard>
 
       {/* 상담 회차 (타임라인) */}
-      <SectionCard title={`상담 회차 (${rounds.length}회)`}>
+      <SectionCard title={`상담 회차 (${formRounds.length}회)`}>
         <div className="divide-y" style={{ borderColor: 'var(--color-line-muted)' }}>
-          {rounds.map((r) => (
+          {formRounds.map((r) => (
             <div key={r.id} className="p-4">
               <div className="flex items-center gap-2 mb-1">
                 <span className="badge badge-neutral">{r.roundNo + 1}차</span>
@@ -133,7 +154,7 @@ export function CounselDetailView({ counselId }: { counselId: number }) {
               {r.nextAction && <div className="text-[12px] text-accent mt-1">다음 액션 · {r.nextAction}</div>}
             </div>
           ))}
-          {rounds.length === 0 && <div className="p-4 text-[13px] text-fg-subtle">아직 상담 회차가 없습니다.</div>}
+          {formRounds.length === 0 && <div className="p-4 text-[13px] text-fg-subtle">아직 상담 회차가 없습니다.</div>}
         </div>
 
         {/* 회차 추가 */}

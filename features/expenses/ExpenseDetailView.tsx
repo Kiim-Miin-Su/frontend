@@ -3,16 +3,18 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Badge, SectionCard } from '@/components/ui';
 import { useTacoStore } from '@/lib/store';
+import { useExpenses, useApproveExpense, useRejectExpense } from '@/lib/queries';
 import { isAdmin } from '@/lib/roles';
 import { won } from '@/lib/format';
 import { ReasonModal } from '@/components/ReasonModal';
 import { categoryLabel, categoryTone, approvalLabel, approvalTone } from './labels';
 
 export function ExpenseDetailView({ expenseId }: { expenseId: number }) {
-  const expense = useTacoStore((s) => s.expenses.find((e) => e.id === expenseId));
+  const { data: expenses = [] } = useExpenses();
+  const expense = expenses.find((e) => e.id === expenseId);
   const admin = isAdmin(useTacoStore((s) => s.currentRole));
-  const approveExpense = useTacoStore((s) => s.approveExpense);
-  const rejectExpense = useTacoStore((s) => s.rejectExpense);
+  const approveExpense = useApproveExpense();
+  const rejectExpense = useRejectExpense();
   const rejectReasons = useTacoStore((s) => s.expenseRejectReasons);
   const [modal, setModal] = useState<'reject' | 'viewReason' | null>(null);
 
@@ -47,7 +49,7 @@ export function ExpenseDetailView({ expenseId }: { expenseId: number }) {
       {/* 관리자: 그 자리에서 승인/반려 (관리자 탭은 몰아보기용) */}
       {admin && expense.status === 'requested' && (
         <div className="flex gap-2">
-          <button className="btn btn-primary" onClick={() => approveExpense(expense.id)}>승인</button>
+          <button className="btn btn-primary" onClick={() => approveExpense.mutate(expense.id)}>승인</button>
           <button className="btn btn-danger" onClick={() => setModal('reject')}>반려</button>
         </div>
       )}
@@ -75,7 +77,7 @@ export function ExpenseDetailView({ expenseId }: { expenseId: number }) {
 
       {modal === 'reject' && (
         <ReasonModal mode="input" title="지출 반려" onClose={() => setModal(null)}
-          onSubmit={(reason) => { rejectExpense(expense.id, reason); setModal(null); }} />
+          onSubmit={(reason) => { rejectExpense.mutate(expense.id); setModal(null); }} />
       )}
       {modal === 'viewReason' && (
         <ReasonModal mode="view" title="지출 반려 사유" initial={rejectReasons[expense.id] ?? ''} onClose={() => setModal(null)} />

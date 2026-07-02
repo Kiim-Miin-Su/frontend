@@ -1,8 +1,13 @@
+// [참조/처리] 수업 보고서 캘린더/리스트 — 읽기 전용. 모든 서버 데이터는 TanStack Query 단일 소스
+//  (useSchedule·useCourses·useInstructors·useEnrollments·useStudents·useReports·useAttendance).
+//  sessionNeedsReport(lib/reports)는 {classSessions,enrollments,sessionReports} slice를 받으므로 조립해 넘긴다.
 'use client';
 import { useState } from 'react';
 import Link from 'next/link';
 import { Badge, SectionCard, type Tone } from '@/components/ui';
-import { useTacoStore } from '@/lib/store';
+import {
+  useSchedule, useCourses, useInstructors, useEnrollments, useStudents, useReports, useAttendance,
+} from '@/lib/queries';
 import { sessionNeedsReport } from '@/lib/reports';
 import type { AttendanceStatus, ReportStatus } from '@/types';
 
@@ -14,7 +19,15 @@ const WEEK = ['일', '월', '화', '수', '목', '금', '토'];
 const pad = (n: number) => String(n).padStart(2, '0');
 
 export function ReportsCalendarView() {
-  const store = useTacoStore();
+  const { data: classSessions = [] } = useSchedule();
+  const { data: courses = [] } = useCourses();
+  const { data: instructors = [] } = useInstructors();
+  const { data: enrollments = [] } = useEnrollments();
+  const { data: students = [] } = useStudents();
+  const { data: sessionReports = [] } = useReports();
+  const { data: attendance = [] } = useAttendance();
+  // sessionNeedsReport용 slice(단일 소스 조립)
+  const reportSlice = { classSessions, enrollments, sessionReports };
   const [ym, setYm] = useState({ y: 2026, m: 5 }); // 0-based: 2026-06
   const [selected, setSelected] = useState<number | null>(null);
   const [needOnly, setNeedOnly] = useState(true); // 기본: 배지와 동일 기준(작성 필요)만
@@ -23,7 +36,7 @@ export function ReportsCalendarView() {
   const daysInMonth = new Date(ym.y, ym.m + 1, 0).getDate();
   const monthStr = `${ym.y}-${pad(ym.m + 1)}`;
   const sessionsOn = (day: number) =>
-    store.classSessions.filter((cs) => cs.sessionDate === `${monthStr}-${pad(day)}`);
+    classSessions.filter((cs) => cs.sessionDate === `${monthStr}-${pad(day)}`);
 
   const cells: (number | null)[] = [];
   for (let i = 0; i < startWeekday; i++) cells.push(null);
@@ -35,14 +48,14 @@ export function ReportsCalendarView() {
     setSelected(null);
   };
 
-  const courseName = (id: number) => store.courses.find((c) => c.id === id)?.name ?? '수업';
-  const instructorName = (id: number) => store.instructors.find((i) => i.id === id)?.name ?? '—';
+  const courseName = (id: number) => courses.find((c) => c.id === id)?.name ?? '수업';
+  const instructorName = (id: number) => instructors.find((i) => i.id === id)?.name ?? '—';
 
-  const session = selected != null ? store.classSessions.find((s) => s.id === selected) : undefined;
+  const session = selected != null ? classSessions.find((s) => s.id === selected) : undefined;
   const roster = session
-    ? store.enrollments
+    ? enrollments
         .filter((e) => e.courseId === session.courseId)
-        .map((e) => store.students.find((s) => s.id === e.studentId))
+        .map((e) => students.find((s) => s.id === e.studentId))
         .filter((s): s is NonNullable<typeof s> => Boolean(s))
     : [];
 
@@ -109,11 +122,11 @@ export function ReportsCalendarView() {
 
       {/* 수업 리스트 — 캘린더와 별도 컴포넌트(리포트 진행률·바로 작성) */}
       {(() => {
-        const inMonth = store.classSessions
+        const inMonth = classSessions
           .filter((cs) => cs.sessionDate.startsWith(monthStr))
           .sort((a, b) => (a.sessionDate + (a.startTime ?? '')).localeCompare(b.sessionDate + (b.startTime ?? '')));
         // 기본은 배지와 동일 기준(작성 필요=held·지난·미작성)만. 전체 보기로 전환 가능.
-        const monthSessions = needOnly ? inMonth.filter((cs) => sessionNeedsReport(store, cs)) : inMonth;
+        const monthSessions = needOnly ? inMonth.filter((cs) => sessionNeedsReport(reportSlice, cs)) : inMonth;
         return (
           <SectionCard
             title={needOnly ? `작성 필요 (${monthSessions.length})` : `수업 리스트 (${monthSessions.length})`}
@@ -130,8 +143,8 @@ export function ReportsCalendarView() {
                 <thead><tr><th>날짜</th><th>수업</th><th>강사</th><th className="text-right">리포트</th><th></th></tr></thead>
                 <tbody>
                   {monthSessions.map((s) => {
-                    const ids = store.enrollments.filter((e) => e.courseId === s.courseId).map((e) => e.studentId);
-                    const done = store.sessionReports.filter((r) => r.sessionId === s.id && ids.includes(r.studentId) && r.status !== 'draft').length;
+                    const ids = enrollments.filter((e) => e.courseId === s.courseId).map((e) => e.studentId);
+                    const done = sessionReports.filter((r) => r.sessionId === s.id && ids.includes(r.studentId) && r.status !== 'draft').length;
                     return (
                       <tr key={s.id} className={s.id === selected ? 'bg-accent-subtle' : ''}>
                         <td className="mono text-fg-muted">{s.sessionDate} {s.startTime ?? ''}</td>
@@ -159,8 +172,8 @@ export function ReportsCalendarView() {
         >
           <div className="divide-y" style={{ borderColor: 'var(--color-line-muted)' }}>
             {roster.map((student) => {
-              const att = store.attendance.find((a) => a.sessionId === session.id && a.studentId === student.id);
-              const report = store.sessionReports.find((r) => r.sessionId === session.id && r.studentId === student.id);
+              const att = attendance.find((a) => a.sessionId === session.id && a.studentId === student.id);
+              const report = sessionReports.find((r) => r.sessionId === session.id && r.studentId === student.id);
               return (
                 <div key={student.id} className="p-4">
                   <div className="flex items-center gap-2 mb-2">

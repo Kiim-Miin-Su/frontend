@@ -3,17 +3,17 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { SectionCard } from '@/components/ui';
-import { useTacoStore } from '@/lib/store';
+import { useStudents, useCourses, useEnrollments, useCreatePayment } from '@/lib/queries';
 import type { PaymentMethod } from '@/types';
 import { won } from '@/lib/format';
 import { METHODS, methodLabel } from './labels';
 
 export function PaymentFormView() {
   const router = useRouter();
-  const students = useTacoStore((s) => s.students);
-  const courses = useTacoStore((s) => s.courses);
-  const enrollments = useTacoStore((s) => s.enrollments);
-  const addPayment = useTacoStore((s) => s.addPayment);
+  const { data: students = [] } = useStudents();
+  const { data: courses = [] } = useCourses();
+  const { data: enrollments = [] } = useEnrollments();
+  const createPayment = useCreatePayment();
 
   const [studentId, setStudentId] = useState('');
   const [courseId, setCourseId] = useState('');
@@ -34,14 +34,13 @@ export function PaymentFormView() {
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!studentId || !amount) return;
-    addPayment({
+    createPayment.mutate({
       studentId: Number(studentId),
       enrollmentId: enrollment?.id,
       amount: Number(amount),
       paymentMethod: (method || undefined) as PaymentMethod | undefined,
       dueAt: dueAt || undefined,
-    });
-    router.push('/payments');
+    }, { onSuccess: () => router.push('/payments') });
   };
 
   return (

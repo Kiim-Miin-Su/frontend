@@ -26,6 +26,12 @@ import type {
   ParentStudent,
   CreateCourseInput,
   CreateSubjectInput,
+  CreatePaymentInput,
+  UpdatePaymentInput,
+  CreateExpenseInput,
+  CreateCounselInput,
+  UpdateCounselInput,
+  CreateCounselRoundInput,
   CreateStudentInput,
   CreateEnrollmentInput,
   WebIdCheckResult,
@@ -171,9 +177,15 @@ export const api = {
   },
   payments: {
     list: () => http.get<Payment[]>("/payments").then((r) => r.data),
+    create: (input: CreatePaymentInput) => http.post<Payment>("/payments", input).then((r) => r.data),
+    update: (id: number, patch: UpdatePaymentInput) => http.patch<Payment>(`/payments/${id}`, patch).then((r) => r.data),
+    markPaid: (id: number) => http.post<Payment>(`/payments/${id}/pay`, {}).then((r) => r.data),
   },
   expenses: {
     list: () => http.get<Expense[]>("/expenses").then((r) => r.data),
+    create: (input: CreateExpenseInput) => http.post<Expense>("/expenses", input).then((r) => r.data),
+    approve: (id: number) => http.post<Expense>(`/expenses/${id}/approve`, {}).then((r) => r.data),
+    reject: (id: number) => http.post<Expense>(`/expenses/${id}/reject`, {}).then((r) => r.data),
   },
   courses: {
     list: () => http.get<Course[]>("/courses").then((r) => r.data),
@@ -187,6 +199,10 @@ export const api = {
     forms: () => http.get<CounselForm[]>("/counsel").then((r) => r.data),
     rounds: (counselFormId?: number) =>
       http.get<CounselRound[]>("/counsel/rounds", { params: counselFormId ? { counselFormId } : undefined }).then((r) => r.data),
+    create: (input: CreateCounselInput) => http.post<CounselForm>("/counsel", input).then((r) => r.data),
+    update: (id: number, patch: UpdateCounselInput) => http.patch<CounselForm>(`/counsel/${id}`, patch).then((r) => r.data),
+    createRound: (formId: number, input: CreateCounselRoundInput) =>
+      http.post<CounselRound>(`/counsel/${formId}/rounds`, input).then((r) => r.data),
   },
   transactions: {
     list: () => http.get<Transaction[]>("/transactions").then((r) => r.data),

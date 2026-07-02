@@ -10,6 +10,7 @@ import {
 import Link from 'next/link';
 import { won, shortDate } from '@/lib/format';
 import { useTacoStore } from '@/lib/store';
+import { useAppData } from '@/lib/queries';
 import { isCEO, isAdmin, roleLabel } from '@/lib/roles';
 import { buildTasks, type TaskItem } from '@/lib/tasks';
 import { BackendPanel } from '@/features/system/BackendPanel';
@@ -50,11 +51,13 @@ const statusLabel: Record<EnrollmentStatus, string> = {
 };
 
 export function DashboardView() {
-  const store = useTacoStore();
-  const role = store.currentRole;
+  // [참조/처리] 서버 데이터(수강·학생·코스 등)는 TanStack Query(useAppData) 단일 소스.
+  //  currentRole은 zustand(클라 상태)에서 별도로 읽어 buildTasks에 합성해 넘긴다.
+  const appData = useAppData();
+  const role = useTacoStore((s) => s.currentRole);
   const ceo = isCEO(role); // 경영 지표(총액·미수금·원장)
   const admin = isAdmin(role); // 운영 데이터
-  const { items: tasks, count: taskCount } = buildTasks(store, role);
+  const { items: tasks, count: taskCount } = buildTasks({ ...appData, currentRole: role }, role);
 
   // 강사: 내 수업·리포트 중심 To-do 대시보드
   if (role === 'instructor') {
@@ -102,13 +105,13 @@ export function DashboardView() {
     );
   }
 
-  const recent = store.enrollments
+  const recent = appData.enrollments
     .slice()
     .sort((a, b) => b.enrolledAt.localeCompare(a.enrolledAt))
     .slice(0, 5)
     .map((e) => {
-      const student = store.students.find((s) => s.id === e.studentId);
-      const course = store.courses.find((c) => c.id === e.courseId);
+      const student = appData.students.find((s) => s.id === e.studentId);
+      const course = appData.courses.find((c) => c.id === e.courseId);
       return { id: e.id, student, course, status: e.status, amount: course?.price ?? 0, at: e.enrolledAt };
     });
 
@@ -149,7 +152,7 @@ export function DashboardView() {
 
       {/* 경영 지표(수입·지출 그래프·원장)는 /insights 탭으로 분리. 대시보드는 운영 처리 대기에 집중. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard label="수강 등록" value={`${store.enrollments.length}건`} tone="accent" icon={<IconUsers />} sub={`학생 ${store.students.length}명`} />
+        <StatCard label="수강 등록" value={`${appData.enrollments.length}건`} tone="accent" icon={<IconUsers />} sub={`학생 ${appData.students.length}명`} />
       </div>
 
       <div className="grid grid-cols-1 gap-6">

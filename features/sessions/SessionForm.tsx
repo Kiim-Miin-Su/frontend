@@ -1,17 +1,25 @@
 "use client";
 import { useMemo, useState } from "react";
 import { Combobox } from "@/components/ui";
-import { useTacoStore } from "@/lib/store";
+import { useCourses, useInstructors, useSchedule, useCreateSchedule } from "@/lib/queries";
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 
+// 기간+요일 반복을 날짜 배열로 전개(store.addRecurringClassSessions 로직 복제).
+function expandRecurringDates(input: { startDate: string; endDate: string; weekdays: number[] }): string[] {
+  const dates: string[] = [];
+  for (const d = new Date(input.startDate); d <= new Date(input.endDate); d.setDate(d.getDate() + 1)) {
+    if (input.weekdays.includes(d.getDay())) dates.push(d.toISOString().slice(0, 10));
+  }
+  return dates;
+}
+
 export function SessionForm() {
-  const courses = useTacoStore((s) => s.courses);
-  const instructors = useTacoStore((s) => s.instructors);
-  const classSessions = useTacoStore((s) => s.classSessions);
-  const addClassSession = useTacoStore((s) => s.addClassSession);
-  const addRecurring = useTacoStore((s) => s.addRecurringClassSessions);
+  const { data: courses = [] } = useCourses();
+  const { data: instructors = [] } = useInstructors();
+  const { data: classSessions = [] } = useSchedule();
+  const createSchedule = useCreateSchedule();
 
   const [mode, setMode] = useState<"single" | "recurring">("single");
   const [courseId, setCourseId] = useState("");
@@ -39,6 +47,15 @@ export function SessionForm() {
 
   const toggleWeekday = (d: number) => setWeekdays((w) => (w.includes(d) ? w.filter((x) => x !== d) : [...w, d].sort()));
 
+  const resetForm = () => {
+    setCourseId("");
+    setInstructorId("");
+    setTopic("");
+    setDuration("90");
+    setSessionDate(todayStr());
+    setWeekdays([]);
+  };
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!courseId || !instructorId) return;
@@ -47,23 +64,24 @@ export function SessionForm() {
       instructorId: Number(instructorId),
       durationMinutes: Number(duration) || 90,
       topic: topic.trim() || undefined,
+      startTime: "09:00",
+      status: "scheduled" as const,
     };
     if (mode === "single") {
-      addClassSession({ ...common, sessionDate });
+      createSchedule.mutate({ ...common, sessionDate }, { onSuccess: resetForm });
     } else {
       if (weekdays.length === 0) {
         alert("반복 요일을 1개 이상 선택하세요.");
         return;
       }
-      const n = addRecurring({ ...common, startDate, endDate, weekdays });
-      alert(`${n}개의 수업이 생성되었습니다.`);
+      const dates = expandRecurringDates({ startDate, endDate, weekdays });
+      const seriesId = Date.now();
+      for (const iso of dates) {
+        createSchedule.mutate({ ...common, sessionDate: iso, seriesId });
+      }
+      alert(`${dates.length}개의 수업이 생성되었습니다.`);
+      resetForm();
     }
-    setCourseId("");
-    setInstructorId("");
-    setTopic("");
-    setDuration("90");
-    setSessionDate(todayStr());
-    setWeekdays([]);
   };
 
   return (

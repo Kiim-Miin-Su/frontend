@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { IconSearch, IconBell } from '../ui/icons';
 import { useTacoStore } from '@/lib/store';
+import { useAppData } from '@/lib/queries';
 import { ROLES, roleLabel } from '@/lib/roles';
 import { buildTasks } from '@/lib/tasks';
 import { currentClaims, clearToken } from '@/lib/auth';
@@ -13,9 +14,9 @@ export default function Topbar() {
   const router = useRouter();
   const currentRole = useTacoStore((s) => s.currentRole);
   const setCurrentRole = useTacoStore((s) => s.setCurrentRole);
-  const store = useTacoStore();
 
-  const { items, count } = buildTasks(store, currentRole);
+  // 알림 항목 — 서버 데이터는 TanStack Query(useAppData) 단일 소스에서 조립.
+  const { items, count } = buildTasks({ ...useAppData(), currentRole }, currentRole);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 

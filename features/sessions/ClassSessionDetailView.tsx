@@ -5,7 +5,7 @@
 import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Badge, SectionCard, type Tone } from "@/components/ui";
-import { useTacoStore } from "@/lib/store";
+import { useSchedule, useCourses, useInstructors, useEnrollments, useStudents, useAttendance, useReports } from "@/lib/queries";
 import { api } from "@/lib/api";
 import { qk } from "@/lib/queryKeys";
 import type { AttendanceStatus, ReportStatus } from "@/types";
@@ -21,30 +21,35 @@ const reportTone: Record<ReportStatus, Tone> = { draft: "neutral", submitted: "a
 const reportLabel: Record<ReportStatus, string> = { draft: "작성중", submitted: "작성완료", sent: "발송됨" };
 
 export function ClassSessionDetailView({ sessionId }: { sessionId: number }) {
-  const store = useTacoStore();
+  const { data: classSessions = [] } = useSchedule();
+  const { data: courses = [] } = useCourses();
+  const { data: instructors = [] } = useInstructors();
+  const { data: enrollments = [] } = useEnrollments();
+  const { data: students = [] } = useStudents();
+  const { data: attendance = [] } = useAttendance();
+  const { data: sessionReports = [] } = useReports();
   const qc = useQueryClient();
-  // 출결 마킹: 낙관적 로컬 upsert(store) 후 백엔드 PUT(단일 소스). 성공/실패 모두 서버와 재동기화.
+  // 출결 마킹: 백엔드 PUT(단일 소스). 성공/실패 모두 서버와 재동기화(qk.attendance 무효화 → 재패칭).
   const markAttendance = useMutation({
     mutationFn: api.attendance.upsert,
     onSettled: () => qc.invalidateQueries({ queryKey: qk.attendance.all }),
   });
   const setAtt = (studentId: number, status: AttendanceStatus) => {
-    store.setAttendance(sessionId, studentId, status);
     markAttendance.mutate({ sessionId, studentId, status });
   };
-  const session = store.classSessions.find((s) => s.id === sessionId);
+  const session = classSessions.find((s) => s.id === sessionId);
 
   if (!session) {
     return <div className="p-6 text-fg-muted">수업을 찾을 수 없습니다. (id: {sessionId})</div>;
   }
 
-  const course = store.courses.find((c) => c.id === session.courseId);
-  const instructor = store.instructors.find((i) => i.id === session.instructorId);
+  const course = courses.find((c) => c.id === session.courseId);
+  const instructor = instructors.find((i) => i.id === session.instructorId);
 
   // 이 수업(코스)의 수강생 = enrollments에서 courseId 일치
-  const roster = store.enrollments
+  const roster = enrollments
     .filter((e) => e.courseId === session.courseId)
-    .map((e) => store.students.find((s) => s.id === e.studentId))
+    .map((e) => students.find((s) => s.id === e.studentId))
     .filter((s): s is NonNullable<typeof s> => Boolean(s));
 
   return (
@@ -64,8 +69,8 @@ export function ClassSessionDetailView({ sessionId }: { sessionId: number }) {
       <SectionCard title={`학생 출석 · 피드백 (${roster.length}명)`}>
         <div className="divide-y" style={{ borderColor: "var(--color-line-muted)" }}>
           {roster.map((student) => {
-            const att = store.attendance.find((a) => a.sessionId === sessionId && a.studentId === student.id);
-            const report = store.sessionReports.find((r) => r.sessionId === sessionId && r.studentId === student.id);
+            const att = attendance.find((a) => a.sessionId === sessionId && a.studentId === student.id);
+            const report = sessionReports.find((r) => r.sessionId === sessionId && r.studentId === student.id);
             return (
               <div key={student.id} className="p-4">
                 <div className="flex items-center justify-between mb-3">

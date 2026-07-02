@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
-import { useTacoStore } from '@/lib/store';
+// 읽기(subjects·courses)/쓰기(상담 생성·수정)는 TanStack Query 훅 경유(zustand store 대체).
+import { useSubjects, useCourses, useCreateCounsel } from '@/lib/queries';
 import type {
   CounselSource,
   DesiredStartTime,
@@ -36,17 +37,16 @@ const empty: FormState = {
 const sourceOf = (a: Author): CounselSource => (a === 'staff' ? 'manual' : 'internal_form');
 
 export function CounselForm() {
-  const addCounselForm = useTacoStore((s) => s.addCounselForm);
-  const updateCounselForm = useTacoStore((s) => s.updateCounselForm);
-  const subjects = useTacoStore((s) => s.subjects);
-  const courses = useTacoStore((s) => s.courses);
+  const createCounsel = useCreateCounsel();
+  const { data: subjects = [] } = useSubjects();
+  const { data: courses = [] } = useCourses();
   const [f, setF] = useState<FormState>(empty);
   const set = (p: Partial<FormState>) => setF((prev) => ({ ...prev, ...p }));
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!f.applicantName.trim()) return;
-    const created = addCounselForm({
+    createCounsel.mutate({
       applicantName: f.applicantName.trim(),
       applicantPhone: f.applicantPhone.trim() || undefined,
       source: sourceOf(f.author),
@@ -58,10 +58,13 @@ export function CounselForm() {
       studentIntention: (f.studentIntention || undefined) as StudentIntention | undefined,
       weakness: f.weakness.trim() || undefined,
       academyExpectation: f.academyExpectation.trim() || undefined,
+    }, {
+      onSuccess: () => {
+        // 다음 상담일(nextContactAt)은 백엔드에서 상담 회차(round)로 관리 → 상담 신청 단계 update 대상 아님.
+        //  (백엔드 UpdateCounselInput 미지원 필드) 날짜 UI는 유지하되, 상세 화면에서 회차 기록 시 반영.
+        setF({ ...empty, author: f.author });
+      },
     });
-    // 다음 상담일: 미정이면 비워두고(알림 대상), 정했으면 설정.
-    if (!f.dateUndecided && f.nextContactAt) updateCounselForm(created.id, { nextContactAt: f.nextContactAt });
-    setF({ ...empty, author: f.author });
   };
 
   return (

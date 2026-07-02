@@ -2,6 +2,20 @@
 import { useCallback, useEffect, useState } from 'react';
 import { SectionCard } from '@/components/ui';
 import { useTacoStore } from '@/lib/store';
+import {
+  useInstructors,
+  useExpenses,
+  usePayouts,
+  useReports,
+  useStudents,
+  useSchedule,
+  useCourses,
+  useApproveReport,
+  useRejectReport,
+  useApproveExpense,
+  useRejectExpense,
+  useConfirmPayout,
+} from '@/lib/queries';
 import { won } from '@/lib/format';
 import { roleLabel } from '@/lib/roles';
 import { AdminHeader } from './AdminShell';
@@ -73,20 +87,32 @@ function MemberApprovals() {
 
 // 승인은 대표(super_admin) 전용
 export function ApprovalsView() {
-  const store = useTacoStore();
-  const isSuper = store.currentRole === 'super_admin';
-  const instructorName = (id: number) => store.instructors.find((i) => i.id === id)?.name ?? '—';
+  const currentRole = useTacoStore((s) => s.currentRole);
+  const { data: instructors = [] } = useInstructors();
+  const { data: expenses = [] } = useExpenses();
+  const { data: instructorPayouts = [] } = usePayouts();
+  const { data: sessionReports = [] } = useReports();
+  const { data: students = [] } = useStudents();
+  const { data: classSessions = [] } = useSchedule();
+  const { data: courses = [] } = useCourses();
+  const approveReport = useApproveReport();
+  const rejectReport = useRejectReport();
+  const approveExpense = useApproveExpense();
+  const rejectExpense = useRejectExpense();
+  const confirmPayout = useConfirmPayout();
+  const isSuper = currentRole === 'super_admin';
+  const instructorName = (id: number) => instructors.find((i) => i.id === id)?.name ?? '—';
 
   const [expenseReject, setExpenseReject] = useState<number | null>(null);
-  const pendingExpenses = store.expenses.filter((e) => e.status === 'requested');
-  const pendingPayouts = store.instructorPayouts.filter((p) => p.status === 'pending');
+  const pendingExpenses = expenses.filter((e) => e.status === 'requested');
+  const pendingPayouts = instructorPayouts.filter((p) => p.status === 'pending');
   // 작성완료(submitted)·미승인 리포트 — 승인 시 시수 적격으로 편입
-  const pendingReports = store.sessionReports.filter((r) => (r.status === 'submitted' || r.approvalStatus === 'submitted') && r.approvalStatus !== 'approved');
-  const studentName = (id: number) => store.students.find((s) => s.id === id)?.name ?? '—';
+  const pendingReports = sessionReports.filter((r) => (r.status === 'submitted' || r.approvalStatus === 'submitted') && r.approvalStatus !== 'approved');
+  const studentName = (id: number) => students.find((s) => s.id === id)?.name ?? '—';
   const sessionInfo = (sid: number) => {
-    const s = store.classSessions.find((x) => x.id === sid);
+    const s = classSessions.find((x) => x.id === sid);
     if (!s) return '';
-    const c = store.courses.find((x) => x.id === s.courseId)?.name ?? '수업';
+    const c = courses.find((x) => x.id === s.courseId)?.name ?? '수업';
     return `${c} · ${s.sessionDate} ${s.startTime ?? ''}`;
   };
 
@@ -95,7 +121,7 @@ export function ApprovalsView() {
       <div className="p-6 max-w-[1100px] mx-auto space-y-6">
         <AdminHeader />
         <div className="card card-pad text-[14px] text-fg-muted">
-          🔒 승인 센터는 <b>대표(CEO)</b> 전용입니다. 현재 역할: {roleLabel[store.currentRole]} — 우측 상단에서 대표로 전환하세요.
+          🔒 승인 센터는 <b>대표(CEO)</b> 전용입니다. 현재 역할: {roleLabel[currentRole]} — 우측 상단에서 대표로 전환하세요.
         </div>
       </div>
     );
@@ -121,8 +147,8 @@ export function ApprovalsView() {
                   <td className="text-fg-muted">{sessionInfo(r.sessionId)}</td>
                   <td className="text-fg-muted max-w-[280px] truncate" title={r.content}>{r.content || '—'}</td>
                   <td className="text-right whitespace-nowrap">
-                    <button className="btn btn-sm btn-primary mr-1.5" onClick={() => store.approveReport(r.id)}>승인</button>
-                    <button className="btn btn-sm btn-danger" onClick={() => store.rejectReport(r.id)}>반려</button>
+                    <button className="btn btn-sm btn-primary mr-1.5" onClick={() => approveReport.mutate({ id: r.id })}>승인</button>
+                    <button className="btn btn-sm btn-danger" onClick={() => rejectReport.mutate({ id: r.id })}>반려</button>
                   </td>
                 </tr>
               ))}
@@ -145,7 +171,7 @@ export function ApprovalsView() {
                   <td className="text-right mono">{won(e.amount)}</td>
                   <td className="mono text-fg-muted">{e.spentAt}</td>
                   <td className="text-right whitespace-nowrap">
-                    <button className="btn btn-sm btn-primary mr-1.5" onClick={() => store.approveExpense(e.id)}>승인</button>
+                    <button className="btn btn-sm btn-primary mr-1.5" onClick={() => approveExpense.mutate(e.id)}>승인</button>
                     <button className="btn btn-sm btn-danger" onClick={() => setExpenseReject(e.id)}>반려</button>
                   </td>
                 </tr>
@@ -168,7 +194,7 @@ export function ApprovalsView() {
                   <td className="mono text-fg-muted">{p.periodStart} ~ {p.periodEnd}</td>
                   <td className="text-right mono">{won(p.amount)} <span className="text-fg-subtle">({p.sessionCount ?? 0}회)</span></td>
                   <td className="text-right">
-                    <button className="btn btn-sm btn-primary" onClick={() => store.approvePayout(p.id)}>승인</button>
+                    <button className="btn btn-sm btn-primary" onClick={() => confirmPayout.mutate(p.id)}>승인</button>
                   </td>
                 </tr>
               ))}
@@ -183,7 +209,7 @@ export function ApprovalsView() {
           mode="input"
           title="지출 반려"
           onClose={() => setExpenseReject(null)}
-          onSubmit={(reason) => { store.rejectExpense(expenseReject, reason); setExpenseReject(null); }}
+          onSubmit={() => { rejectExpense.mutate(expenseReject); setExpenseReject(null); }}
         />
       )}
     </div>

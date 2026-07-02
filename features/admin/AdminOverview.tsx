@@ -1,6 +1,6 @@
 'use client';
 import { MonthCalendar } from '@/components/ui';
-import { useTacoStore } from '@/lib/store';
+import { useSchedule, useCourses, useAcademyEvents } from '@/lib/queries';
 import { AdminGuard, AdminHeader } from './AdminShell';
 import { eventLabel, eventStyle } from './labels';
 
@@ -16,9 +16,9 @@ export function AdminOverview() {
 }
 
 function AcademyCalendar() {
-  const classSessions = useTacoStore((s) => s.classSessions);
-  const courses = useTacoStore((s) => s.courses);
-  const events = useTacoStore((s) => s.academyEvents);
+  const { data: classSessions = [] } = useSchedule();
+  const { data: courses = [] } = useCourses();
+  const { data: events = [] } = useAcademyEvents();
   const courseName = (id: number) => courses.find((c) => c.id === id)?.name ?? '수업';
 
   return (

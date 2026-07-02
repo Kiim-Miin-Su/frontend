@@ -1,8 +1,15 @@
+// [참조/처리] 리포트 작성(한 페이지) — 읽기=TanStack Query 단일 소스
+//  (useSchedule·useCourses·useInstructors·useEnrollments·useStudents·useReports).
+//  쓰기=useCreateReport/useSubmitReport(보고서는 session×student 단일). 템플릿은 클라 상태(store 유지).
 'use client';
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Badge, SectionCard, type Tone } from '@/components/ui';
 import { useTacoStore } from '@/lib/store';
+import {
+  useSchedule, useCourses, useInstructors, useEnrollments, useStudents, useReports,
+  useCreateReport, useSubmitReport,
+} from '@/lib/queries';
 import { DEMO_INSTRUCTOR_ID } from '@/lib/tasks';
 import { sessionNeedsReport } from '@/lib/reports';
 import type { ClassSession, ReportStatus, Student } from '@/types';
@@ -14,27 +21,37 @@ const sessionLabel: Record<string, string> = { held: '진행완료', scheduled: 
 
 // 한 페이지 리포트 작성 — 강사의 진행중 모든 수업·학생을 좌(목록)/우(인라인 작성)로.
 export function ReportWriteView() {
-  const store = useTacoStore();
+  const { data: instructors = [] } = useInstructors();
+  const { data: courses = [] } = useCourses();
+  const { data: classSessions = [] } = useSchedule();
+  const { data: enrollments = [] } = useEnrollments();
+  const { data: students = [] } = useStudents();
+  const { data: sessionReports = [] } = useReports();
+  // sessionNeedsReport용 slice(단일 소스 조립)
+  const reportSlice = useMemo(
+    () => ({ classSessions, enrollments, sessionReports }),
+    [classSessions, enrollments, sessionReports],
+  );
   const instructorId = DEMO_INSTRUCTOR_ID; // 데모: 로그인 강사(추후 세션 user.id)
-  const instructorName = store.instructors.find((i) => i.id === instructorId)?.name ?? '강사';
-  const courseName = (id: number) => store.courses.find((c) => c.id === id)?.name ?? '수업';
+  const instructorName = instructors.find((i) => i.id === instructorId)?.name ?? '강사';
+  const courseName = (id: number) => courses.find((c) => c.id === id)?.name ?? '수업';
 
   const sessions = useMemo(
     () =>
-      store.classSessions
+      classSessions
         .filter((s) => s.instructorId === instructorId)
         .sort((a, b) => (b.sessionDate + (b.startTime ?? '')).localeCompare(a.sessionDate + (a.startTime ?? ''))),
-    [store.classSessions, instructorId],
+    [classSessions, instructorId],
   );
 
   const rosterOf = (courseId: number): Student[] =>
-    store.enrollments
+    enrollments
       .filter((e) => e.courseId === courseId)
-      .map((e) => store.students.find((s) => s.id === e.studentId))
+      .map((e) => students.find((s) => s.id === e.studentId))
       .filter((s): s is Student => Boolean(s));
 
   const reportFor = (sid: number, stid: number) =>
-    store.sessionReports.find((r) => r.sessionId === sid && r.studentId === stid);
+    sessionReports.find((r) => r.sessionId === sid && r.studentId === stid);
 
   const progressOf = (s: ClassSession) => {
     const roster = rosterOf(s.courseId);
@@ -44,7 +61,7 @@ export function ReportWriteView() {
 
   // 배지와 동일 기준의 "작성 필요"(held·지난 수업·미작성) 목록. 기본은 이 목록만 노출(배지=리스트 일치).
   // 전체 보기로 전환하면 예정·완료 수업도 열어 편집 가능.
-  const needSessions = useMemo(() => sessions.filter((s) => sessionNeedsReport(store, s)), [sessions, store]);
+  const needSessions = useMemo(() => sessions.filter((s) => sessionNeedsReport(reportSlice, s)), [sessions, reportSlice]);
   const [needOnly, setNeedOnly] = useState(true);
   const listSessions = needOnly ? needSessions : sessions;
 
@@ -78,7 +95,7 @@ export function ReportWriteView() {
             {listSessions.map((s) => {
               const p = progressOf(s);
               const active = s.id === selId;
-              const need = sessionNeedsReport(store, s);
+              const need = sessionNeedsReport(reportSlice, s);
               return (
                 <li key={s.id}>
                   <button
@@ -134,13 +151,17 @@ export function ReportWriteView() {
 
 // 학생 1명 인라인 작성 행 — 페이지 이동 없이 저장/제출.
 function StudentReportRow({ session, student }: { session: ClassSession; student: Student }) {
-  const store = useTacoStore();
-  const report = store.sessionReports.find((r) => r.sessionId === session.id && r.studentId === student.id);
+  const { data: sessionReports = [] } = useReports();
+  // 템플릿(reportTemplates·addReportTemplate)은 클라이언트 상태 → store 유지.
+  const templates = useTacoStore((s) => s.reportTemplates);
+  const addReportTemplate = useTacoStore((s) => s.addReportTemplate);
+  const createReport = useCreateReport();
+  const submitReport = useSubmitReport();
+  const report = sessionReports.find((r) => r.sessionId === session.id && r.studentId === student.id);
   const [content, setContent] = useState(report?.content ?? '');
   const [homework, setHomework] = useState(report?.homework ?? '');
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const status: ReportStatus = report?.status ?? 'draft';
-  const templates = store.reportTemplates;
 
   const applyTemplate = (id: number) => {
     const t = templates.find((x) => x.id === id);
@@ -151,12 +172,25 @@ function StudentReportRow({ session, student }: { session: ClassSession; student
   const saveAsTemplate = () => {
     if (!content.trim()) return;
     const name = window.prompt('템플릿 이름');
-    if (name?.trim()) store.addReportTemplate(name.trim(), content, homework || undefined);
+    if (name?.trim()) addReportTemplate(name.trim(), content, homework || undefined);
   };
 
   const save = (submit: boolean) => {
-    store.upsertReport(session.id, student.id, session.instructorId, { content, homework });
-    if (submit) store.submitReport(session.id, student.id);
+    // 기존 보고서가 있으면 제출(submit by id). 없으면 신규 생성(create). 백엔드가 (session,student) 단일화.
+    if (report) {
+      if (submit && report.approvalStatus !== 'submitted' && report.approvalStatus !== 'approved') {
+        submitReport.mutate(report.id);
+      }
+    } else {
+      createReport.mutate({
+        sessionId: session.id,
+        studentId: student.id,
+        instructorId: session.instructorId,
+        content,
+        homework: homework || undefined,
+        status: submit ? 'submitted' : 'draft',
+      });
+    }
     setSavedAt(new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
   };
 

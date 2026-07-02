@@ -3,7 +3,7 @@
 //  - 쓰기(useMutation)는 Q3에서 도메인별로 추가하며 성공 시 관련 queryKey를 invalidate한다.
 //  - buildTasks/navBadges/lib.reports 등 "여러 도메인 slice"가 필요한 로직은 useAppData()로 조립해 넘긴다.
 "use client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { api, type SessionReport as ApiReport } from "@/lib/api";
 import { qk } from "@/lib/queryKeys";
 import type { Instructor, SessionReport } from "@/types";
@@ -83,3 +83,66 @@ export function useAppData() {
     counselForms, counselRounds, academyEvents, roadmaps, roadmapCourses, instructors,
   };
 }
+
+// ── 뮤테이션 훅 (중앙화) ──
+// 쓰기는 전부 백엔드 API 경유 + 성공 시 관련 queryKey invalidate → Query(및 store 하이드레이션) 자동 갱신.
+// 각 뷰는 아래 훅만 호출(useMutation+invalidate 반복 제거 = 함수 통일).
+function useInvalidator(keys: QueryKey[]) {
+  const qc = useQueryClient();
+  return () => keys.forEach((key) => qc.invalidateQueries({ queryKey: key }));
+}
+
+// 카탈로그
+export const useCreateCourse = () => useMutation({ mutationFn: api.courses.create, onSuccess: useInvalidator([qk.courses.all]) });
+export const useCreateSubject = () => useMutation({ mutationFn: api.subjects.create, onSuccess: useInvalidator([qk.subjects.all]) });
+export const useCreateEvent = () => useMutation({ mutationFn: api.events.create, onSuccess: useInvalidator([qk.events.all]) });
+export const useCreateRoadmap = () => useMutation({ mutationFn: api.roadmaps.create, onSuccess: useInvalidator([qk.roadmaps.all]) });
+
+// 명단(학생·수강)
+export const useCreateStudent = () => useMutation({ mutationFn: api.students.create, onSuccess: useInvalidator([qk.students.all]) });
+export const useCreateEnrollment = () => useMutation({ mutationFn: api.enrollments.create, onSuccess: useInvalidator([qk.enrollments.all, qk.students.all]) });
+
+// 결제
+export const useCreatePayment = () => useMutation({ mutationFn: api.payments.create, onSuccess: useInvalidator([qk.payments.all]) });
+export const useUpdatePayment = () =>
+  useMutation({ mutationFn: (v: { id: number; patch: Parameters<typeof api.payments.update>[1] }) => api.payments.update(v.id, v.patch), onSuccess: useInvalidator([qk.payments.all]) });
+export const useMarkPaymentPaid = () => useMutation({ mutationFn: api.payments.markPaid, onSuccess: useInvalidator([qk.payments.all, qk.transactions.all]) });
+
+// 지출(승인 워크플로우)
+export const useCreateExpense = () => useMutation({ mutationFn: api.expenses.create, onSuccess: useInvalidator([qk.expenses.all]) });
+export const useApproveExpense = () => useMutation({ mutationFn: api.expenses.approve, onSuccess: useInvalidator([qk.expenses.all, qk.transactions.all]) });
+export const useRejectExpense = () => useMutation({ mutationFn: api.expenses.reject, onSuccess: useInvalidator([qk.expenses.all]) });
+
+// 상담
+export const useCreateCounsel = () => useMutation({ mutationFn: api.counsel.create, onSuccess: useInvalidator([qk.counsel.all]) });
+export const useUpdateCounsel = () =>
+  useMutation({ mutationFn: (v: { id: number; patch: Parameters<typeof api.counsel.update>[1] }) => api.counsel.update(v.id, v.patch), onSuccess: useInvalidator([qk.counsel.all]) });
+export const useCreateCounselRound = () =>
+  useMutation({ mutationFn: (v: { formId: number; input: Parameters<typeof api.counsel.createRound>[1] }) => api.counsel.createRound(v.formId, v.input), onSuccess: useInvalidator([qk.counsel.all]) });
+
+// 스케줄(생성·수정·삭제) — 삭제/상태변경은 리포트·정산 적격에도 영향 → 폭넓게 무효화
+export const useCreateSchedule = () => useMutation({ mutationFn: api.schedule.create, onSuccess: useInvalidator([qk.schedule.all]) });
+export const useUpdateSchedule = () =>
+  useMutation({ mutationFn: (v: { id: number; body: Parameters<typeof api.schedule.update>[1] }) => api.schedule.update(v.id, v.body), onSuccess: useInvalidator([qk.schedule.all, qk.reports.all, qk.payouts.all]) });
+export const useRemoveSchedule = () => useMutation({ mutationFn: api.schedule.remove, onSuccess: useInvalidator([qk.schedule.all, qk.reports.all, qk.payouts.all]) });
+
+// 출결(강사 마킹) — session×student upsert
+export const useUpsertAttendance = () => useMutation({ mutationFn: api.attendance.upsert, onSuccess: useInvalidator([qk.attendance.all]) });
+
+// 리포트(작성·제출·승인/반려) — 승인은 시수/정산 적격 변동
+export const useCreateReport = () => useMutation({ mutationFn: api.reports.create, onSuccess: useInvalidator([qk.reports.all]) });
+export const useSubmitReport = () => useMutation({ mutationFn: api.reports.submit, onSuccess: useInvalidator([qk.reports.all]) });
+export const useApproveReport = () =>
+  useMutation({ mutationFn: (v: { id: number; approvedBy?: number }) => api.reports.approve(v.id, v.approvedBy), onSuccess: useInvalidator([qk.reports.all, qk.payouts.all]) });
+export const useRejectReport = () =>
+  useMutation({ mutationFn: (v: { id: number; reason?: string }) => api.reports.reject(v.id, v.reason), onSuccess: useInvalidator([qk.reports.all, qk.payouts.all]) });
+
+// 정산(강사 페이) — 생성/확정/지급/반려/조정
+export const useGeneratePayout = () =>
+  useMutation({ mutationFn: (v: { instructorId: number; from: string; to: string }) => api.payouts.generate(v.instructorId, v.from, v.to), onSuccess: useInvalidator([qk.payouts.all]) });
+export const useConfirmPayout = () => useMutation({ mutationFn: api.payouts.confirm, onSuccess: useInvalidator([qk.payouts.all]) });
+export const usePayPayout = () => useMutation({ mutationFn: api.payouts.pay, onSuccess: useInvalidator([qk.payouts.all, qk.transactions.all]) });
+export const useRejectPayout = () =>
+  useMutation({ mutationFn: (v: { id: number; reason?: string }) => api.payouts.reject(v.id, v.reason), onSuccess: useInvalidator([qk.payouts.all, qk.schedule.all]) });
+export const useAdjustPayout = () =>
+  useMutation({ mutationFn: (v: { id: number; amount: number; reason?: string }) => api.payouts.adjust(v.id, v.amount, v.reason), onSuccess: useInvalidator([qk.payouts.all]) });

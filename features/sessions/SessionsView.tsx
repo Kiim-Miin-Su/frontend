@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { Badge, SectionCard, type Tone } from "@/components/ui";
-import { useTacoStore } from "@/lib/store";
+import { useSchedule, useCourses, useInstructors } from "@/lib/queries";
 import type { SessionStatus } from "@/types";
 import { shortDate } from "@/lib/format";
 import { SessionForm } from "./SessionForm";
@@ -22,10 +22,9 @@ const label: Record<SessionStatus, string> = {
 };
 
 export function SessionsView() {
-  // 개별 selector로 구독 (객체 selector는 매 렌더 새 참조라 지양)
-  const classSessions = useTacoStore((s) => s.classSessions);
-  const courses = useTacoStore((s) => s.courses);
-  const instructors = useTacoStore((s) => s.instructors);
+  const { data: classSessions = [] } = useSchedule();
+  const { data: courses = [] } = useCourses();
+  const { data: instructors = [] } = useInstructors();
 
   const [q, setQ] = useState("");
   const kw = q.trim().toLowerCase();

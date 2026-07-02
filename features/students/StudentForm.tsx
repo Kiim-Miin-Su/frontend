@@ -1,6 +1,8 @@
 'use client';
+// 학생 생성과 코스 등록은 백엔드로 전송한다(useCreateStudent → useCreateEnrollment).
+// 학부모 정보는 아직 백엔드 생성 엔드포인트가 없어 UI 전용이며 mutation에 포함되지 않는다.
 import { useState } from 'react';
-import { useTacoStore } from '@/lib/store';
+import { useCreateStudent, useCreateEnrollment, useCourses } from '@/lib/queries';
 import { api } from '@/lib/api';
 
 type FormState = {
@@ -24,8 +26,9 @@ const empty: FormState = {
 };
 
 export function StudentForm() {
-  const addStudent = useTacoStore((s) => s.addStudent);
-  const courses = useTacoStore((s) => s.courses);
+  const createStudent = useCreateStudent();
+  const createEnrollment = useCreateEnrollment();
+  const { data: courses = [] } = useCourses();
   const [f, setF] = useState<FormState>(empty);
   const [studentWeb, setStudentWeb] = useState<VerifyState>({ state: 'idle' });
   const [parentWeb, setParentWeb] = useState<VerifyState>({ state: 'idle' });
@@ -54,27 +57,23 @@ export function StudentForm() {
       alert('학부모 Web ID를 확인해 주세요.');
       return;
     }
-    addStudent({
-      student: {
-        name: f.name.trim(),
-        englishName: f.englishName.trim() || undefined,
-        grade: f.grade ? Number(f.grade) : undefined,
-        phone: f.phone.trim() || undefined,
-        webId: f.webId.trim() || undefined,
+    // 학부모 정보(parentName/parentPhone/parentWebId/relation)는 백엔드 생성
+    // 엔드포인트가 없어 mutation에서 제외한다. 폼 입력·검증 UI는 그대로 유지.
+    const studentInput = {
+      name: f.name.trim(),
+      englishName: f.englishName.trim() || undefined,
+      grade: f.grade ? Number(f.grade) : undefined,
+      phone: f.phone.trim() || undefined,
+      webId: f.webId.trim() || undefined,
+    };
+    createStudent.mutate(studentInput, {
+      onSuccess: (created) => {
+        if (f.courseId) createEnrollment.mutate({ studentId: created.id, courseId: Number(f.courseId) });
+        setF(empty);
+        setStudentWeb({ state: 'idle' });
+        setParentWeb({ state: 'idle' });
       },
-      courseId: f.courseId ? Number(f.courseId) : undefined,
-      parent: f.parentName.trim()
-        ? {
-            name: f.parentName.trim(),
-            phone: f.parentPhone.trim() || undefined,
-            webId: f.parentWebId.trim() || undefined,
-            relation: f.relation,
-          }
-        : undefined,
     });
-    setF(empty);
-    setStudentWeb({ state: 'idle' });
-    setParentWeb({ state: 'idle' });
   };
 
   return (

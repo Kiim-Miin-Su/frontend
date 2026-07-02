@@ -2,14 +2,19 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Badge, SectionCard } from '@/components/ui';
-import { useTacoStore } from '@/lib/store';
+import { usePayments, useStudents, useEnrollments, useCourses, useUpdatePayment, useMarkPaymentPaid } from '@/lib/queries';
 import type { PaymentMethod, PaymentStatus } from '@/types';
 import { won } from '@/lib/format';
 import { statusLabel, statusTone, methodLabel, METHODS, STATUSES } from './labels';
 
 export function PaymentDetailView({ paymentId }: { paymentId: number }) {
-  const store = useTacoStore();
-  const payment = store.payments.find((p) => p.id === paymentId);
+  const { data: payments = [] } = usePayments();
+  const { data: students = [] } = useStudents();
+  const { data: enrollments = [] } = useEnrollments();
+  const { data: courses = [] } = useCourses();
+  const updatePayment = useUpdatePayment();
+  const markPaid = useMarkPaymentPaid();
+  const payment = payments.find((p) => p.id === paymentId);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({ amount: '', paymentMethod: '', dueAt: '', status: '' as string });
 
@@ -22,9 +27,9 @@ export function PaymentDetailView({ paymentId }: { paymentId: number }) {
     );
   }
 
-  const student = store.students.find((s) => s.id === payment.studentId);
-  const enrollment = payment.enrollmentId ? store.enrollments.find((e) => e.id === payment.enrollmentId) : undefined;
-  const course = enrollment ? store.courses.find((c) => c.id === enrollment.courseId) : undefined;
+  const student = students.find((s) => s.id === payment.studentId);
+  const enrollment = payment.enrollmentId ? enrollments.find((e) => e.id === payment.enrollmentId) : undefined;
+  const course = enrollment ? courses.find((c) => c.id === enrollment.courseId) : undefined;
 
   const startEdit = () => {
     setDraft({
@@ -36,12 +41,19 @@ export function PaymentDetailView({ paymentId }: { paymentId: number }) {
     setEditing(true);
   };
   const save = () => {
-    store.updatePayment(payment.id, {
-      amount: Number(draft.amount) || payment.amount,
-      paymentMethod: (draft.paymentMethod || undefined) as PaymentMethod | undefined,
-      dueAt: draft.dueAt || undefined,
-      status: draft.status as PaymentStatus,
+    // 백엔드 UpdatePaymentInput은 status 미포함(상태 전이는 별도 엔드포인트) → 금액·수단·기한만 patch.
+    updatePayment.mutate({
+      id: payment.id,
+      patch: {
+        amount: Number(draft.amount) || payment.amount,
+        paymentMethod: (draft.paymentMethod || undefined) as PaymentMethod | undefined,
+        dueAt: draft.dueAt || undefined,
+      },
     });
+    // 상태를 '수납완료'로 바꿨다면 전용 수납 처리(markPaid)로 원장 반영.
+    if ((draft.status as PaymentStatus) === 'paid' && payment.status !== 'paid') {
+      markPaid.mutate(payment.id);
+    }
     setEditing(false);
   };
 
@@ -67,7 +79,7 @@ export function PaymentDetailView({ paymentId }: { paymentId: number }) {
             <div className="flex gap-1.5">
               <button className="btn btn-sm" onClick={startEdit}>수정</button>
               {payment.status === 'pending' && (
-                <button className="btn btn-sm btn-primary" onClick={() => store.markPaymentPaid(payment.id)}>수납 처리</button>
+                <button className="btn btn-sm btn-primary" onClick={() => markPaid.mutate(payment.id)}>수납 처리</button>
               )}
             </div>
           )

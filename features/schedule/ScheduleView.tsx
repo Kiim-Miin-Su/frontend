@@ -1,11 +1,12 @@
 // [참조/처리] 캘린더(월 뷰) — 세 레이어를 합성 렌더.
-//  - store.classSessions(수업), store.availabilityBlocks(가용/불가), store.academyEvents(학원 이벤트).
+//  - classSessions(수업)·academyEvents(학원 이벤트)는 TanStack Query로 조회. currentRole/currentStudentId는 클라이언트 상태로 store 유지.
 //  - academyEvents는 FK 없는 독립 레이어: 날짜 구간으로 겹쳐 표시. eventScope로 '중요(high)만/전체/끔' 필터.
 //    강사 본인 뷰(myView) 기본은 'important'(학생/학부모 노출 규칙과 동일). 상호 참조 없음 → 삭제/충돌 전이 없음.
 'use client';
 import { useState } from 'react';
 import { MonthCalendar } from '@/components/ui';
 import { useTacoStore } from '@/lib/store';
+import { useEnrollments, useCourses, useSchedule, useAcademyEvents } from '@/lib/queries';
 import { isStudentOrParent } from '@/lib/roles';
 import { eventLabel, eventStyle } from '@/features/admin/labels';
 
@@ -13,20 +14,25 @@ type ClassScope = 'mine' | 'all';
 type EventScope = 'important' | 'all' | 'none';
 
 export function ScheduleView() {
-  const store = useTacoStore();
-  const myView = isStudentOrParent(store.currentRole);
+  const currentRole = useTacoStore((s) => s.currentRole);
+  const currentStudentId = useTacoStore((s) => s.currentStudentId);
+  const { data: enrollments = [] } = useEnrollments();
+  const { data: courses = [] } = useCourses();
+  const { data: classSessions = [] } = useSchedule();
+  const { data: academyEvents = [] } = useAcademyEvents();
+  const myView = isStudentOrParent(currentRole);
 
   // 기본값: 학생/학부모 → 내 수업 + 중요 이벤트
   const [classScope, setClassScope] = useState<ClassScope>(myView ? 'mine' : 'all');
   const [eventScope, setEventScope] = useState<EventScope>(myView ? 'important' : 'all');
 
   const myCourseIds = new Set(
-    store.enrollments.filter((e) => e.studentId === store.currentStudentId).map((e) => e.courseId),
+    enrollments.filter((e) => e.studentId === currentStudentId).map((e) => e.courseId),
   );
-  const courseName = (id: number) => store.courses.find((c) => c.id === id)?.name ?? '수업';
+  const courseName = (id: number) => courses.find((c) => c.id === id)?.name ?? '수업';
 
-  const sessions = store.classSessions.filter((s) => classScope === 'all' || myCourseIds.has(s.courseId));
-  const events = store.academyEvents.filter((e) =>
+  const sessions = classSessions.filter((s) => classScope === 'all' || myCourseIds.has(s.courseId));
+  const events = academyEvents.filter((e) =>
     eventScope === 'none' ? false : eventScope === 'important' ? e.priority === 'high' : true,
   );
 

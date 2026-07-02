@@ -1,14 +1,15 @@
 'use client';
+// 데이터 소스: TanStack Query 훅(usePayments/useStudents)에서 조회.
 import { useState } from 'react';
 import Link from 'next/link';
 import { Badge, SectionCard, MonthCalendar } from '@/components/ui';
-import { useTacoStore } from '@/lib/store';
+import { usePayments, useStudents } from '@/lib/queries';
 import { won } from '@/lib/format';
 import { statusLabel, statusTone, methodLabel } from './labels';
 
 export function PaymentsView() {
-  const payments = useTacoStore((s) => s.payments);
-  const students = useTacoStore((s) => s.students);
+  const { data: payments = [] } = usePayments();
+  const { data: students = [] } = useStudents();
   const [view, setView] = useState<'list' | 'calendar'>('list');
 
   const nameOf = (id: number) => students.find((s) => s.id === id)?.name ?? '—';
