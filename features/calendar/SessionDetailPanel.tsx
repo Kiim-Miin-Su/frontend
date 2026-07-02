@@ -7,23 +7,24 @@
 import { useEffect, useState } from "react";
 import type { Room, ScheduleRow } from "@/types";
 import type { SchedulePatchBody } from "@/lib/api";
-import { INSTRUCTOR_ATT_LABEL, PALETTE, STATUS_LABEL, isGroupSession } from "@/lib/domain/lantiv";
-
-const WD = ["일", "월", "화", "수", "목", "금", "토"];
+import { WEEKDAYS_KO as WD } from "@/lib/domain/schedule";
+import { INSTRUCTOR_ATT_LABEL, STATUS_LABEL, isGroupSession } from "@/lib/domain/lantiv";
+import { SessionEditFields } from "./SessionEditFields";
 
 export function SessionDetailPanel({
-  row, rooms, canEdit, colorOf, onPatch, onOpenModal,
+  row, rooms, instructors, canEdit, colorOf, onPatch, onOpenModal,
 }: {
   row: ScheduleRow | null;
   rooms: Room[];
+  instructors: { id: number; name: string }[];
   canEdit: boolean;
   colorOf: (r: ScheduleRow) => string;
   onPatch: (r: ScheduleRow, patch: SchedulePatchBody, label: string) => void;
   onOpenModal: (r: ScheduleRow) => void;
 }) {
-  // 메모는 로컬 편집 후 저장(타이핑마다 PATCH 방지). 선택 세션이 바뀌면 리셋.
-  const [memo, setMemo] = useState(row?.memo ?? "");
-  useEffect(() => setMemo(row?.memo ?? ""), [row?.id, row?.memo]);
+  // 편집 모드(TBO-10 #3): DetailModal과 동일한 SessionEditFields 공통 폼 — 모든 input 편집 가능.
+  const [editing, setEditing] = useState(false);
+  useEffect(() => setEditing(false), [row?.id]); // 선택 세션 변경 시 보기 모드로
 
   if (!row) {
     return (
@@ -40,6 +41,17 @@ export function SessionDetailPanel({
         {row.seriesId != null && <span className="badge badge-accent">반복</span>}
       </div>
       <div className="card-pad space-y-2.5">
+        {editing && row ? (
+          <SessionEditFields
+            row={row}
+            rooms={rooms}
+            instructors={instructors}
+            compact
+            onSave={(patch, label) => { setEditing(false); onPatch(row, patch, label); }}
+            onCancel={() => setEditing(false)}
+          />
+        ) : (
+          <>
         {/* ScheduleRow DTO 그대로 렌더 */}
         <dl className="grid grid-cols-[64px_1fr] gap-y-1 text-[12.5px]">
           <dt className="text-fg-muted">날짜</dt>
@@ -69,85 +81,26 @@ export function SessionDetailPanel({
           )}
         </dl>
 
-        {/* 속성 빠른 변경 — 반복이면 부모가 범위 확인 후 PATCH */}
-        <div className="grid grid-cols-2 gap-2">
-          <label className="block">
-            <span className="block text-[11px] text-fg-muted mb-0.5">상태</span>
-            <select
-              className="input h-8 text-[12px]"
-              value={row.status}
-              disabled={!canEdit}
-              onChange={(e) => onPatch(row, { status: e.target.value as ScheduleRow["status"] }, "상태 변경")}
-            >
-              {Object.keys(STATUS_LABEL).map((s) => (
-                <option key={s} value={s}>
-                  {STATUS_LABEL[s]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="block text-[11px] text-fg-muted mb-0.5">강의실</span>
-            <select
-              className="input h-8 text-[12px]"
-              value={row.roomId ?? ""}
-              disabled={!canEdit}
-              onChange={(e) =>
-                onPatch(row, { roomId: e.target.value ? Number(e.target.value) : undefined }, "강의실 변경")
-              }
-            >
-              <option value="">미지정</option>
-              {rooms.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        {canEdit && (
-          <div>
-            <span className="block text-[11px] text-fg-muted mb-0.5">색상</span>
-            <div className="flex items-center gap-1.5">
-              {PALETTE.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => onPatch(row, { color: c }, "색상 변경")}
-                  className="w-5 h-5 rounded-full"
-                  style={{
-                    background: c,
-                    outline: row.color === c ? "2px solid var(--color-fg)" : "1px solid var(--color-line)",
-                    outlineOffset: 1,
-                  }}
-                  aria-label={c}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-        <label className="block">
-          <span className="block text-[11px] text-fg-muted mb-0.5">메모</span>
-          <textarea
-            className="input min-h-[48px] py-1 text-[12px]"
-            rows={2}
-            value={memo}
-            readOnly={!canEdit}
-            onChange={(e) => setMemo(e.target.value)}
-          />
-        </label>
+        <dl className="grid grid-cols-[64px_1fr] gap-y-1 text-[12.5px]">
+          <dt className="text-fg-muted">상태</dt>
+          <dd>{STATUS_LABEL[row.status] ?? row.status}</dd>
+          <dt className="text-fg-muted">메모</dt>
+          <dd className="whitespace-pre-wrap">{row.memo ? row.memo : <span className="text-fg-subtle">—</span>}</dd>
+        </dl>
         <div className="flex justify-between gap-2">
-          {canEdit && memo !== (row.memo ?? "") ? (
-            <button className="btn btn-sm" onClick={() => onPatch(row, { memo }, "메모 수정")}>
-              메모 저장
+          {canEdit ? (
+            <button className="btn btn-sm btn-primary" onClick={() => setEditing(true)}>
+              편집 — 모든 항목
             </button>
           ) : (
             <span />
           )}
           <button className="btn btn-sm" onClick={() => onOpenModal(row)}>
-            상세 편집…
+            모달로 크게…
           </button>
         </div>
+          </>
+        )}
       </div>
     </div>
   );

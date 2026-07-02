@@ -17,8 +17,7 @@ const attLabel: Record<AttendanceStatus, string> = { present: '출석', late: '�
 const attTone: Record<AttendanceStatus, Tone> = { present: 'success', late: 'attention', absent: 'danger', excused: 'done' };
 const reportTone: Record<ReportStatus, Tone> = { draft: 'neutral', submitted: 'accent', sent: 'success' };
 const reportLabel: Record<ReportStatus, string> = { draft: '작성중', submitted: '작성완료', sent: '발송됨' };
-const WEEK = ['일', '월', '화', '수', '목', '금', '토'];
-const pad = (n: number) => String(n).padStart(2, '0');
+import { WEEKDAYS_KO as WEEK, pad2 as pad } from '@/lib/domain/schedule';
 
 export function ReportsCalendarView() {
   const { data: classSessions = [] } = useSchedule();

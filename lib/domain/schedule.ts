@@ -13,6 +13,8 @@ export const toMin = (hhmm: string): number => {
 };
 /** 분 → 'HH:mm' — toMin의 역함수(감사 D: 파일별 중복 fromMin 통일용 export). */
 export const fromMin = (mm: number): string => `${pad(Math.floor(mm / 60))}:${pad(mm % 60)}`;
+/** 요일 라벨(0=일 ~ 6=토) — 뷰 공용(감사 D: 파일별 중복 WD/WEEK 통일용 export). */
+export const WEEKDAYS_KO = ['일', '월', '화', '수', '목', '금', '토'] as const;
 export const addMinutes = (hhmm: string, mins: number): string => {
   const t = toMin(hhmm) + mins;
   return `${pad(Math.floor(t / 60))}:${pad(t % 60)}`;

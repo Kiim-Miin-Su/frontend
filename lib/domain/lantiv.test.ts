@@ -3,11 +3,14 @@ import { describe, expect, it } from 'vitest';
 import type { Attendance, ScheduleRow } from '@/types';
 import {
   buildSplitColumns,
+  buildMixedSplitColumns,
   cloneSessionBody,
+  matchesResourceFilter,
   groupSessions,
   isGroupSession,
   matchesStatusFilter,
   rowInResource,
+  sessionEditPatch,
   sessionStates,
   sortByDateAsc,
   type StatusFilter,
@@ -146,6 +149,63 @@ describe('buildSplitColumns — (날짜 × 리소스) 스플릿 컬럼', () => {
     const cols = buildSplitColumns(['2026-07-06'], 'room', picks);
     expect(cols.map((c) => c.roomId)).toEqual([1, 2]);
     expect(buildSplitColumns(['2026-07-06'], 'instructor', picks).every((c) => c.roomId === undefined)).toBe(true);
+  });
+});
+
+describe('matchesResourceFilter — 강사·학생 합집합(OR), 강의실 AND', () => {
+  const sel = (i: number[] = [], s: number[] = [], r: number[] = []) =>
+    ({ instructors: new Set(i), students: new Set(s), rooms: new Set(r) });
+  const rr = row({ instructorId: 1, roomId: 1, studentIds: [3] });
+
+  it('강사+학생 동시 선택 = 합집합 — 강사 일치만으로도, 학생 일치만으로도 통과(교집합 버그 회귀)', () => {
+    expect(matchesResourceFilter(rr, sel([1], [999]))).toBe(true); // 강사만 일치
+    expect(matchesResourceFilter(rr, sel([999], [3]))).toBe(true); // 학생만 일치
+    expect(matchesResourceFilter(rr, sel([999], [999]))).toBe(false); // 둘 다 불일치
+  });
+  it('단일 차원 선택은 기존과 동일', () => {
+    expect(matchesResourceFilter(rr, sel([1]))).toBe(true);
+    expect(matchesResourceFilter(rr, sel([2]))).toBe(false);
+    expect(matchesResourceFilter(rr, sel([], [3]))).toBe(true);
+  });
+  it('강의실은 AND(장소 한정) — 방 불일치면 강사 일치여도 제외', () => {
+    expect(matchesResourceFilter(rr, sel([1], [], [2]))).toBe(false);
+    expect(matchesResourceFilter(rr, sel([1], [], [1]))).toBe(true);
+  });
+});
+
+describe('buildMixedSplitColumns — 강사+학생 혼합 컬럼(한 날짜에 양쪽 시간표)', () => {
+  it('타입 혼합 순서 보존 + 날짜 경계 마킹 + key 유일', () => {
+    const cols = buildMixedSplitColumns(['2026-07-06'], [
+      { id: 1, name: '박지훈', type: 'instructor' },
+      { id: 2, name: '정유진', type: 'instructor' },
+      { id: 1, name: '김서연', type: 'student' },
+    ]);
+    expect(cols.map((c) => `${c.resType}${c.resId}`)).toEqual(['instructor1', 'instructor2', 'student1']);
+    expect(new Set(cols.map((c) => c.key)).size).toBe(3); // 같은 id 1이라도 타입 달라 key 유일
+    expect(cols.map((c) => c.firstOfDate)).toEqual([true, false, false]);
+  });
+});
+
+describe('sessionEditPatch — 편집 폼 패치 빌드(모달·우측 패널 공통 규칙)', () => {
+  const d = {
+    sessionDate: '2026-07-08', startTime: '14:00', endTime: '15:30',
+    instructorId: 2, roomId: undefined, status: 'scheduled' as const,
+    topic: '', memo: 'm', color: '#222222', scope: 'this_and_following' as const,
+  };
+  it('scope는 시리즈일 때만 포함(단건엔 미포함 — API 계약 명확화)', () => {
+    expect(sessionEditPatch(d, true).scope).toBe('this_and_following');
+    expect('scope' in sessionEditPatch(d, false)).toBe(false);
+  });
+  it('빈 topic은 미전송(기존값 유지 — 실수 삭제 방지), roomId undefined=변경 없음', () => {
+    const p = sessionEditPatch(d, false);
+    expect(p.topic).toBeUndefined();
+    expect(p.roomId).toBeUndefined();
+    expect(p.instructorId).toBe(2);
+    expect(sessionEditPatch({ ...d, topic: ' 주제 ' }, false).topic).toBe(' 주제 ');
+  });
+  it('시작 ≥ 종료면 throw(이중 방어)', () => {
+    expect(() => sessionEditPatch({ ...d, endTime: '14:00' }, false)).toThrow();
+    expect(() => sessionEditPatch({ ...d, endTime: '13:00' }, false)).toThrow();
   });
 });
 

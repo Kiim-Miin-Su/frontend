@@ -6,8 +6,8 @@
 import { useMemo } from "react";
 import type { ScheduleRow } from "@/types";
 import { groupSessions, isGroupSession, type ListGroupBy } from "@/lib/domain/lantiv";
+import { WEEKDAYS_KO as WD } from "@/lib/domain/schedule";
 
-const WD = ["일", "월", "화", "수", "목", "금", "토"];
 const GROUP_LABEL: Record<Exclude<ListGroupBy, "none">, string> = {
   student: "학생별",
   instructor: "강사별",

@@ -3,19 +3,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { ScheduleRow, Room, Conflict, ScheduleResources, ScheduleResource, AvailabilityBlock, AccountRole, Attendance } from "@/types";
 import { api, type SchedulePatchBody, type ScheduleCreateBody, type AvailabilityUpsertBody } from "@/lib/api";
-import { weekDates, weekdayOf, layoutLanes, teachingHours, toMin as toMinD, ownerWindows } from "@/lib/domain/schedule";
+// 시간·요일 유틸은 lib/domain/schedule 단일 소스(감사 D — 파일별 중복 toMin/fromMin/pad/WD 제거)
+import { weekDates, weekdayOf, layoutLanes, teachingHours, toMin, fromMin, pad2 as pad, WEEKDAYS_KO as WD, ownerWindows } from "@/lib/domain/schedule";
 import {
   PALETTE, STATUS_LABEL, MAX_SPLIT,
-  matchesStatusFilter, isGroupSession, sortByDateAsc, buildSplitColumns, rowInResource, cloneSessionBody,
-  type StatusFilter, type SplitDim, type ListGroupBy, type PasteTarget,
+  matchesStatusFilter, matchesResourceFilter, isGroupSession, sortByDateAsc,
+  buildMixedSplitColumns, rowInResource, cloneSessionBody,
+  type StatusFilter, type SplitDim, type ListGroupBy, type PasteTarget, type MixedPick,
 } from "@/lib/domain/lantiv";
 import { useAttendance } from "@/lib/queries";
 import { exportNodeAsImage } from "@/lib/export";
 import { useTacoStore } from "@/lib/store";
 import { isAdmin, roleLabel } from "@/lib/roles";
 import { currentClaims } from "@/lib/auth";
-import { StudentMatchPanel } from "./StudentMatchPanel";
 import { ResourcePanel } from "./ResourcePanel";
+import { SessionEditFields, ColorPicker, Field } from "./SessionEditFields";
 import { CalendarFilterBar, type Period } from "./CalendarFilterBar";
 import { SessionListPanel } from "./SessionListPanel";
 import { SessionDetailPanel } from "./SessionDetailPanel";
@@ -30,20 +32,13 @@ const GUTTER_W = 64; // 시간 거터 너비
 const COL_MIN = 128; // 컬럼 최소 너비
 const GRID_MIN = START_H * 60;
 const GRID_H = (END_H - START_H) * HOUR_H;
-const WD = ["일", "월", "화", "수", "목", "금", "토"];
-// PALETTE/STATUS_LABEL은 lib/domain/lantiv에서 import(우측 패널과 단일 소스).
+// WD/toMin/fromMin/pad는 lib/domain/schedule, PALETTE/STATUS_LABEL은 lib/domain/lantiv에서 import(단일 소스).
 // 시수 미측정·충돌 제외·회색 표시 대상(결강/취소)
 const CANCELED_GRAY = "#8c959f";
 const isCanceledStatus = (s?: string) => s === "canceled" || s === "no_show";
 
-const toMin = (t: string) => {
-  const [h, m] = t.split(":").map(Number);
-  return h * 60 + m;
-};
-const fromMin = (mm: number) => `${String(Math.floor(mm / 60)).padStart(2, "0")}:${String(mm % 60).padStart(2, "0")}`;
 const snap = (mm: number) => Math.round(mm / SNAP) * SNAP;
 const clampMin = (mm: number) => Math.max(GRID_MIN, Math.min(END_H * 60, mm));
-const pad = (n: number) => String(n).padStart(2, "0");
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const addDaysISO = (iso: string, n: number) => {
   const d = new Date(iso + "T00:00:00Z");
@@ -95,7 +90,8 @@ export function ScheduleCalendar() {
   // 데모 본인 강사 식별(실제로는 JWT sub) — 사이드바와 동일하게 첫 강사를 '나'로 간주
   const myInstructorId = isInstructor ? resources?.instructors[0]?.id : undefined;
   const canAdd = canManage || (isInstructor && myInstructorId != null);
-  const [creating, setCreating] = useState<{ date: string } | null>(null);
+  // start가 있으면 그 시각으로 프리필(빈 곳 더블클릭 — 피드백 2026-07-02 #4).
+  const [creating, setCreating] = useState<{ date: string; start?: string } | null>(null);
 
   // ── 필터(Lantiv형) ──
   const [q, setQ] = useState("");
@@ -227,10 +223,9 @@ export function ScheduleCalendar() {
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return rows.filter((r) => {
-      if (fInstructors.size && !fInstructors.has(r.instructorId)) return false;
+      // 강사·학생 = 합집합(OR), 강의실 = AND — 동시 다중선택 교집합 버그 수정(lantiv.matchesResourceFilter).
+      if (!matchesResourceFilter(r, { instructors: fInstructors, students: fStudents, rooms: fRooms })) return false;
       if (fSubjects.size && !fSubjects.has(r.subjectName)) return false;
-      if (fRooms.size && !(r.roomId != null && fRooms.has(r.roomId))) return false;
-      if (fStudents.size && !(r.studentIds ?? []).some((id) => fStudents.has(id))) return false;
       // Lantiv 상태 필터(출석/지각/결강/보강) — 세션 status + 강사·학생 출결 조합(lib/domain/lantiv)
       if (!matchesStatusFilter(r, attBySession.get(Number(r.id)) ?? [], fStatuses)) return false;
       if (groupOnly && !isGroupSession(r)) return false;
@@ -259,23 +254,27 @@ export function ScheduleCalendar() {
 
   const hrs = teachingHours(filtered);
 
-  // ── 스플릿 뷰(Lantiv): 한 차원에서 2개 이상 선택되면 (날짜 × 리소스) 컬럼으로 분할 ──
-  // 우선순위: 강사 > 학생 > 강의실(여러 차원 다중선택 시). 컬럼 폭주 방지 MAX_SPLIT.
-  const splitDim: SplitDim | null =
-    fInstructors.size >= 2 ? "instructor" : fStudents.size >= 2 ? "student" : fRooms.size >= 2 ? "room" : null;
-  const splitPicks = useMemo(() => {
-    if (!splitDim) return [];
-    const ids = splitDim === "instructor" ? fInstructors : splitDim === "student" ? fStudents : fRooms;
-    const opts =
-      splitDim === "room"
-        ? rooms.map((r) => ({ id: Number(r.id), name: r.name }))
-        : ((splitDim === "instructor" ? resources?.instructors : resources?.students) ?? []).map((r) => ({
-            id: Number(r.id),
-            name: r.name,
-          }));
-    return opts.filter((o) => ids.has(o.id)).slice(0, MAX_SPLIT);
-  }, [splitDim, fInstructors, fStudents, fRooms, resources, rooms]);
-  const isSplit = splitDim != null && splitPicks.length >= 2 && (view === "week" || view === "day");
+  // ── 스플릿 뷰(Lantiv): 선택 리소스 합계가 2개 이상이면 (날짜 × 리소스) 컬럼으로 분할 ──
+  // 강사+학생 **혼합 허용**(피드백: 양쪽 시간표를 보며 배치). 강의실은 사람 선택이 없을 때만 스플릿(있으면 AND 필터).
+  const splitPicks: MixedPick[] = useMemo(() => {
+    const out: MixedPick[] = [];
+    (resources?.instructors ?? []).forEach((r) => {
+      if (fInstructors.has(Number(r.id))) out.push({ id: Number(r.id), name: r.name, type: "instructor" });
+    });
+    (resources?.students ?? []).forEach((r) => {
+      if (fStudents.has(Number(r.id))) out.push({ id: Number(r.id), name: r.name, type: "student" });
+    });
+    if (out.length === 0) {
+      rooms.forEach((r) => {
+        if (fRooms.has(Number(r.id))) out.push({ id: Number(r.id), name: r.name, type: "room" });
+      });
+    }
+    return out.slice(0, MAX_SPLIT);
+  }, [fInstructors, fStudents, fRooms, resources, rooms]);
+  const splitDim: SplitDim | null = splitPicks[0]?.type ?? null;
+  const isSplit = splitPicks.length >= 2 && (view === "week" || view === "day");
+  // 컬럼이 좁아지면(주간 × 다수 리소스) 블록을 색상만 표시(컴팩트) — UI 최적화(피드백).
+  const compact = isSplit && (view === "week" ? splitPicks.length >= 3 : splitPicks.length >= 8);
 
   // 컬럼: 스플릿=(날짜×리소스) · week=날짜 · day=강의실
   type Col = {
@@ -283,7 +282,7 @@ export function ScheduleCalendar() {
     resType?: SplitDim; resId?: number; firstOfDate?: boolean;
   };
   const columns: Col[] = isSplit
-    ? buildSplitColumns(view === "day" ? [anchor] : dates, splitDim!, splitPicks).map((c) => ({
+    ? buildMixedSplitColumns(view === "day" ? [anchor] : dates, splitPicks).map((c) => ({
         key: c.key, label: c.label,
         sub: view === "week" ? `${WD[weekdayOf(c.date)]} ${c.date.slice(5)}` : undefined,
         date: c.date, roomId: c.roomId, resType: c.resType, resId: c.resId, firstOfDate: c.firstOfDate,
@@ -310,8 +309,8 @@ export function ScheduleCalendar() {
           && (!b.effectiveFrom || c.date >= b.effectiveFrom) && (!b.effectiveTo || c.date <= b.effectiveTo),
       )
       .map((b) => {
-        const s = clampMin(toMinD(b.startTime)),
-          e = clampMin(toMinD(b.endTime));
+        const s = clampMin(toMin(b.startTime)),
+          e = clampMin(toMin(b.endTime));
         return { id: b.id, kind: b.kind, startMin: s, endMin: e, top: ((s - GRID_MIN) / 60) * HOUR_H, h: Math.max(6, ((e - s) / 60) * HOUR_H) };
       });
   };
@@ -492,13 +491,13 @@ export function ScheduleCalendar() {
     if (patch.startTime) next.startTime = patch.startTime;
     if (patch.endTime) next.endTime = patch.endTime;
     if (patch.startTime || patch.endTime) {
-      const s = toMinD(next.startTime ?? "00:00");
-      const e = next.endTime ? toMinD(next.endTime) : s + next.durationMinutes;
+      const s = toMin(next.startTime ?? "00:00");
+      const e = next.endTime ? toMin(next.endTime) : s + next.durationMinutes;
       next.durationMinutes = Math.max(1, e - s);
     }
     if (patch.durationMinutes != null) {
       next.durationMinutes = patch.durationMinutes;
-      if (next.startTime && !patch.endTime) next.endTime = fromMin(toMinD(next.startTime) + patch.durationMinutes);
+      if (next.startTime && !patch.endTime) next.endTime = fromMin(toMin(next.startTime) + patch.durationMinutes);
     }
     if (patch.roomId !== undefined) next.roomId = patch.roomId;
     if (patch.instructorId !== undefined) next.instructorId = patch.instructorId;
@@ -542,12 +541,12 @@ export function ScheduleCalendar() {
   function optimisticRow(body: ScheduleCreateBody): ScheduleRow {
     const c = resources?.courses.find((x) => x.id === body.courseId);
     const start = body.startTime;
-    const end = body.endTime ?? fromMin(toMinD(start) + (body.durationMinutes ?? c?.durationMinutes ?? 60));
+    const end = body.endTime ?? fromMin(toMin(start) + (body.durationMinutes ?? c?.durationMinutes ?? 60));
     return {
       id: -Date.now(), courseId: body.courseId,
       instructorId: body.instructorId ?? c?.instructorId ?? 0, roomId: body.roomId,
       sessionDate: body.sessionDate, weekday: weekdayOf(body.sessionDate),
-      startTime: start, endTime: end, durationMinutes: Math.max(1, toMinD(end) - toMinD(start)),
+      startTime: start, endTime: end, durationMinutes: Math.max(1, toMin(end) - toMin(start)),
       status: (body.status as ScheduleRow["status"]) ?? "scheduled", color: body.color, memo: body.memo,
       courseName: c?.name ?? "수업", subjectName: c?.subjectName ?? "",
       instructorName: c?.instructorName ?? "", roomName: rooms.find((r) => r.id === body.roomId)?.name,
@@ -838,7 +837,11 @@ export function ScheduleCalendar() {
             {selected && <span className="text-accent"> · {selected.name} 개인 스케줄</span>}
             {isSplit && (
               <span className="text-accent">
-                {" "}· 스플릿 뷰({splitDim === "instructor" ? "강사" : splitDim === "student" ? "학생" : "강의실"} {splitPicks.length})
+                {" "}· 스플릿 뷰(
+                {new Set(splitPicks.map((p) => p.type)).size > 1
+                  ? "강사+학생"
+                  : splitDim === "instructor" ? "강사" : splitDim === "student" ? "학생" : "강의실"}
+                {" "}{splitPicks.length}{compact ? " · 컴팩트" : ""})
               </span>
             )}
           </p>
@@ -885,16 +888,7 @@ export function ScheduleCalendar() {
       </div>
 
       <div className="flex gap-4 items-start">
-        {/* 좌측: 학생 → 강사 추천(오른쪽에서 고른 학생 기준). */}
-        {resources && (
-          <StudentMatchPanel
-            resources={resources}
-            weekStart={weekStart}
-            selected={selected}
-            onAssign={createSession}
-          />
-        )}
-
+        {/* 좌측 추천 패널 제거(피드백 2026-07-02 #5) — 스플릿뷰로 강사·학생 스케줄을 직접 비교·배치. */}
         {/* 본문 */}
         <div className="flex-1 min-w-0 space-y-4">
           {/* ── Lantiv형 필터 바: 리소스 다중선택(스플릿) + 상태/그룹/기간 + 검색/색 기준 ── */}
@@ -1006,7 +1000,7 @@ export function ScheduleCalendar() {
                           style={{
                             borderColor: c.resType && c.firstOfDate ? "var(--color-line)" : "var(--color-line-muted)",
                             borderLeftWidth: c.resType && c.firstOfDate ? 2 : undefined,
-                            minWidth: c.resType ? 96 : COL_MIN,
+                            minWidth: c.resType ? (compact ? 56 : 96) : COL_MIN, // 컴팩트=색상 위주 표시
                           }}
                         >
                           {/* 헤더: 스플릿=날짜+리소스명 · 주간=요일+날짜(오늘 강조) · 일간=강의실 */}
@@ -1060,6 +1054,13 @@ export function ScheduleCalendar() {
                               const rect = e.currentTarget.getBoundingClientRect();
                               const min = clampMin(snapMove(GRID_MIN + ((e.clientY - rect.top) / HOUR_H) * 60));
                               setCursor({ colKey: c.key, date: c.date, startMin: min, resType: c.resType, resId: c.resId, roomId: c.roomId });
+                            }}
+                            onDoubleClick={(e) => {
+                              // 빈 공간 더블클릭 = 그 시각으로 스케줄 추가(피드백 2026-07-02 #4).
+                              if (e.target !== e.currentTarget || !canAdd) return;
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              const min = clampMin(snapMove(GRID_MIN + ((e.clientY - rect.top) / HOUR_H) * 60));
+                              setCreating({ date: c.date, start: fromMin(min) });
                             }}
                           >
                             {/* 가용(초록)/불가(회색) 밴드 — 클릭=선택 · 끝 드래그=시간 조절 · ✕=삭제 (스케줄처럼 관리) */}
@@ -1178,15 +1179,20 @@ export function ScheduleCalendar() {
                                   {selEvent === r.id && (
                                     <div onPointerDown={(e) => onResizeDown(e, r, "top")} className="absolute left-1/2 -translate-x-1/2 top-0 w-6 h-2 rounded-b bg-white/90 cursor-ns-resize" />
                                   )}
-                                  <div className={`font-semibold truncate ${isCanceledStatus(r.status) ? "line-through opacity-90" : ""}`}>
-                                    {labelOf(r)}{isCanceledStatus(r.status) ? ` (${STATUS_LABEL[r.status]})` : ""}
-                                  </div>
-                                  <div className="opacity-90 mono truncate">
-                                    {fromMin(s)}–{fromMin(en)}
-                                  </div>
-                                  <div className="opacity-80 truncate">
-                                    {r.memo ? r.memo : view === "week" ? (r.roomName ?? "") : r.instructorName}
-                                  </div>
+                                  {/* 컴팩트(좁은 스플릿 컬럼): 텍스트 생략, 색상 블록 + 툴팁만 — UI 최적화(피드백) */}
+                                  {!compact && (
+                                    <>
+                                      <div className={`font-semibold truncate ${isCanceledStatus(r.status) ? "line-through opacity-90" : ""}`}>
+                                        {labelOf(r)}{isCanceledStatus(r.status) ? ` (${STATUS_LABEL[r.status]})` : ""}
+                                      </div>
+                                      <div className="opacity-90 mono truncate">
+                                        {fromMin(s)}–{fromMin(en)}
+                                      </div>
+                                      <div className="opacity-80 truncate">
+                                        {r.memo ? r.memo : view === "week" ? (r.roomName ?? "") : r.instructorName}
+                                      </div>
+                                    </>
+                                  )}
                                   {selEvent === r.id && (
                                     <div onPointerDown={(e) => onResizeDown(e, r, "bottom")} className="absolute left-1/2 -translate-x-1/2 bottom-0 w-6 h-2 rounded-t bg-white/90 cursor-ns-resize" />
                                   )}
@@ -1231,6 +1237,7 @@ export function ScheduleCalendar() {
           <SessionDetailPanel
             row={detailRow}
             rooms={rooms}
+            instructors={(resources?.instructors ?? []).map((i) => ({ id: Number(i.id), name: i.name }))}
             canEdit={!!canAdd}
             colorOf={colorOf}
             onPatch={(r, patch, label) => requestChange(r, patch, label)}
@@ -1244,6 +1251,7 @@ export function ScheduleCalendar() {
         <DetailModal
           row={editing}
           rooms={rooms}
+          instructors={(resources?.instructors ?? []).map((i) => ({ id: Number(i.id), name: i.name }))}
           colorOf={colorOf}
           onClose={() => setEditing(null)}
           onDelete={() => deleteSession(editing.id)}
@@ -1274,6 +1282,7 @@ export function ScheduleCalendar() {
           resources={resources}
           rooms={rooms}
           defaultDate={creating.date}
+          defaultStart={creating.start}
           lockInstructorId={isInstructor ? myInstructorId : undefined}
           defaultOwner={selected}
           onClose={() => setCreating(null)}
@@ -1463,28 +1472,11 @@ function MonthGrid({
   );
 }
 
-// ── 색상 라벨 선택 (스와치) ──
-function ColorPicker({ value, onChange }: { value?: string; onChange: (c: string) => void }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      {PALETTE.map((c) => (
-        <button
-          key={c}
-          type="button"
-          onClick={() => onChange(c)}
-          className="w-6 h-6 rounded-full transition"
-          style={{ background: c, outline: value === c ? "2px solid var(--color-fg)" : "1px solid var(--color-line)", outlineOffset: 1 }}
-          aria-label={c}
-        />
-      ))}
-    </div>
-  );
-}
-
-// ── 상세 + 편집 모달 ──
+// ── 상세 + 편집 모달 — 편집 폼은 SessionEditFields 공통(우측 패널과 동일 폼·검증·패치 빌드) ──
 function DetailModal({
   row,
   rooms,
+  instructors,
   colorOf,
   onClose,
   onSave,
@@ -1492,20 +1484,13 @@ function DetailModal({
 }: {
   row: ScheduleRow;
   rooms: Room[];
+  instructors: { id: number; name: string }[];
   colorOf: (r: ScheduleRow) => string;
   onClose: () => void;
   onSave: (patch: SchedulePatchBody) => void;
   onDelete: () => void;
 }) {
   const [mode, setMode] = useState<"detail" | "edit">("detail");
-  const [date, setDate] = useState(row.sessionDate);
-  const [start, setStart] = useState(row.startTime ?? "16:00");
-  const [end, setEnd] = useState(row.endTime ?? fromMin(toMin(row.startTime ?? "16:00") + row.durationMinutes));
-  const [roomId, setRoomId] = useState<number | "">(row.roomId ?? "");
-  const [status, setStatus] = useState(row.status);
-  const [memo, setMemo] = useState(row.memo ?? "");
-  const [color, setColor] = useState<string | undefined>(row.color);
-  const [scope, setScope] = useState<"this" | "this_and_following" | "all">("this");
   const isSeries = row.seriesId != null;
 
   return (
@@ -1564,85 +1549,14 @@ function DetailModal({
             </div>
           </>
         ) : (
-          <>
-            <Field label="날짜">
-              <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="시작">
-                <input type="time" step={900} className="input" value={start} onChange={(e) => setStart(e.target.value)} />
-              </Field>
-              <Field label="종료">
-                <input type="time" step={900} className="input" value={end} onChange={(e) => setEnd(e.target.value)} />
-              </Field>
-            </div>
-            <Field label="강의실">
-              <select
-                className="input"
-                value={roomId}
-                onChange={(e) => setRoomId(e.target.value ? Number(e.target.value) : "")}
-              >
-                <option value="">미지정</option>
-                {rooms.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="상태">
-              <select className="input" value={status} onChange={(e) => setStatus(e.target.value as ScheduleRow["status"])}>
-                {Object.keys(STATUS_LABEL).map((s) => (
-                  <option key={s} value={s}>
-                    {STATUS_LABEL[s]}{s === "held" ? " (시수 측정)" : isCanceledStatus(s) ? " (시수 미측정·이월)" : ""}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="색상">
-              <ColorPicker value={color} onChange={setColor} />
-            </Field>
-            <Field label="메모">
-              <textarea className="input min-h-[64px] py-1.5" rows={3} placeholder="자유 메모 (학생 특이사항·준비물 등)"
-                value={memo} onChange={(e) => setMemo(e.target.value)} />
-            </Field>
-            {isSeries && (
-              <Field label="반복 적용 범위">
-                <select className="input" value={scope} onChange={(e) => setScope(e.target.value as typeof scope)}>
-                  <option value="this">이 일정만</option>
-                  <option value="this_and_following">이 일정 및 이후 전부</option>
-                  <option value="all">시리즈 전체</option>
-                </select>
-              </Field>
-            )}
-            <div className="flex justify-between gap-2 pt-1">
-              <button className="btn btn-sm" style={{ color: "var(--color-danger)" }} onClick={onDelete}>
-                삭제
-              </button>
-              <div className="flex gap-2">
-                <button className="btn" onClick={() => setMode("detail")}>
-                  취소
-                </button>
-                <button
-                  className="btn btn-primary"
-                  onClick={() =>
-                    onSave({
-                      sessionDate: date,
-                      startTime: start,
-                      endTime: end,
-                      roomId: roomId || undefined,
-                      status,
-                      memo,
-                      color,
-                      scope: isSeries ? scope : undefined,
-                    })
-                  }
-                >
-                  저장
-                </button>
-              </div>
-            </div>
-          </>
+          <SessionEditFields
+            row={row}
+            rooms={rooms}
+            instructors={instructors}
+            onSave={(patch) => onSave(patch)}
+            onCancel={() => setMode("detail")}
+            onDelete={onDelete}
+          />
         )}
       </div>
     </div>
@@ -1690,6 +1604,7 @@ function CreateModal({
   resources,
   rooms,
   defaultDate,
+  defaultStart,
   lockInstructorId,
   defaultOwner,
   onClose,
@@ -1700,6 +1615,7 @@ function CreateModal({
   resources: ScheduleResources;
   rooms: Room[];
   defaultDate: string;
+  defaultStart?: string; // 빈 곳 더블클릭 시 그 시각으로 프리필
   lockInstructorId?: number; // 강사 본인만 추가 가능할 때 — 본인 ID로 고정
   defaultOwner?: ScheduleResource | null;
   onClose: () => void;
@@ -1717,10 +1633,10 @@ function CreateModal({
   const [instructorId, setInstructorId] = useState<number | "">(lockInstructorId ?? course?.instructorId ?? "");
   const [roomId, setRoomId] = useState<number | "">("");
   const [date, setDate] = useState(defaultDate);
-  const [start, setStart] = useState("16:00");
+  const [start, setStart] = useState(defaultStart ?? "16:00");
   // 진행시간은 코스(실제 수업) 데이터에서 — 종료시각 자동 계산(편집 가능)
   const courseDur = course?.durationMinutes ?? 90;
-  const [end, setEnd] = useState(fromMin(toMin("16:00") + (myCourses[0]?.durationMinutes ?? 90)));
+  const [end, setEnd] = useState(fromMin(toMin(defaultStart ?? "16:00") + (myCourses[0]?.durationMinutes ?? 90)));
   const [memo, setMemo] = useState("");
   // 색상 라벨: 생성 시 기본값은 개설 때 고른 코스 색(미지정 시 비움 → 백엔드가 코스/과목 색 폴백)
   const [color, setColor] = useState<string | undefined>(myCourses[0]?.color);
@@ -1959,11 +1875,4 @@ function CreateModal({
 function Dt({ children }: { children: React.ReactNode }) {
   return <dt className="text-fg-muted">{children}</dt>;
 }
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="block text-[12px] font-medium text-fg-muted mb-1">{label}</span>
-      {children}
-    </label>
-  );
-}
+// Field·ColorPicker는 SessionEditFields.tsx에서 import(폼 프리미티브 단일 소스).

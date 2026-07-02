@@ -169,7 +169,14 @@ export function CalendarFilterBar({
           />
         ))}
         <span className="w-px h-5" style={{ background: "var(--color-line)" }} />
-        {/* 상태 필터(출석/지각/결강/보강) — "결강만/보강만" 등 조합 가능 */}
+        {/* 상태 필터: [전체] + 출석/지각/결강/보강 — 전체=상태 무관(기본), 복수 선택=합집합(피드백: 옵션별 전체 란) */}
+        <button
+          className={`btn btn-sm ${fStatuses.size === 0 ? "badge-accent" : ""}`}
+          onClick={() => STATUS_FILTERS.forEach((s) => fStatuses.has(s) && onToggleStatus(s))}
+          title="상태 무관 전체 보기"
+        >
+          전체
+        </button>
         {STATUS_FILTERS.map((s) => (
           <button
             key={s}
@@ -180,9 +187,18 @@ export function CalendarFilterBar({
             {STATUS_FILTER_LABEL[s]}
           </button>
         ))}
+        <span className="w-px h-5" style={{ background: "var(--color-line)" }} />
+        {/* 수업 유형: [전체] / [그룹 수업만] */}
+        <button
+          className={`btn btn-sm ${!groupOnly ? "badge-accent" : ""}`}
+          onClick={() => onGroupOnly(false)}
+          title="1:1·그룹 모두"
+        >
+          전체
+        </button>
         <button
           className={`btn btn-sm ${groupOnly ? "badge-accent" : ""}`}
-          onClick={() => onGroupOnly(!groupOnly)}
+          onClick={() => onGroupOnly(true)}
           title="수강생 2명 이상인 그룹 수업만"
         >
           그룹 수업만
