@@ -18,6 +18,7 @@ import { isAdmin, roleLabel } from "@/lib/roles";
 import { currentClaims } from "@/lib/auth";
 import { ResourcePanel } from "./ResourcePanel";
 import { SessionEditFields, ColorPicker, Field } from "./SessionEditFields";
+import { CalendarSplitPane, type SplitPaneDef } from "./CalendarSplitPane";
 import { CalendarFilterBar, type Period } from "./CalendarFilterBar";
 import { SessionListPanel } from "./SessionListPanel";
 import { SessionDetailPanel } from "./SessionDetailPanel";
@@ -254,40 +255,36 @@ export function ScheduleCalendar() {
 
   const hrs = teachingHours(filtered);
 
-  // ── 스플릿 뷰(Lantiv): 선택 리소스 합계가 2개 이상이면 (날짜 × 리소스) 컬럼으로 분할 ──
-  // 강사+학생 **혼합 허용**(피드백: 양쪽 시간표를 보며 배치). 강의실은 사람 선택이 없을 때만 스플릿(있으면 AND 필터).
-  const splitPicks: MixedPick[] = useMemo(() => {
-    const out: MixedPick[] = [];
-    (resources?.instructors ?? []).forEach((r) => {
-      if (fInstructors.has(Number(r.id))) out.push({ id: Number(r.id), name: r.name, type: "instructor" });
-    });
-    (resources?.students ?? []).forEach((r) => {
-      if (fStudents.has(Number(r.id))) out.push({ id: Number(r.id), name: r.name, type: "student" });
-    });
-    if (out.length === 0) {
-      rooms.forEach((r) => {
-        if (fRooms.has(Number(r.id))) out.push({ id: Number(r.id), name: r.name, type: "room" });
-      });
-    }
-    return out.slice(0, MAX_SPLIT);
-  }, [fInstructors, fStudents, fRooms, resources, rooms]);
-  const splitDim: SplitDim | null = splitPicks[0]?.type ?? null;
-  const isSplit = splitPicks.length >= 2 && (view === "week" || view === "day");
-  // 컬럼이 좁아지면(주간 × 다수 리소스) 블록을 색상만 표시(컴팩트) — UI 최적화(피드백).
-  const compact = isSplit && (view === "week" ? splitPicks.length >= 3 : splitPicks.length >= 8);
+  // ── 스플릿(재설계 2026-07-02, Lantiv 창 분할): 표 = 독립 컴포넌트(CalendarSplitPane) ──
+  //  표마다 자체 차원(강사/학생/강의실)+리소스 다중선택. "+ 표" 로 추가, ✕로 삭제(최대 3개).
+  //  상단 필터바의 리소스 선택은 이제 **필터(OR)** 역할만 — 스플릿은 표가 담당(역할 분리).
+  const [panes, setPanes] = useState<SplitPaneDef[]>([]);
+  const paneSeq = useRef(1);
+  const addPane = (dim: SplitDim = "instructor") =>
+    setPanes((ps) => (ps.length >= 3 ? ps : [...ps, { uid: paneSeq.current++, dim, ids: [] }]));
+  const updatePane = (uid: number, patch: Partial<SplitPaneDef>) =>
+    setPanes((ps) => ps.map((p) => (p.uid === uid ? { ...p, ...patch, ids: (patch.ids ?? p.ids).slice(0, MAX_SPLIT) } : p)));
+  const removePane = (uid: number) => setPanes((ps) => ps.filter((p) => p.uid !== uid));
+  const isSplit = panes.length > 0 && (view === "week" || view === "day");
 
-  // 컬럼: 스플릿=(날짜×리소스) · week=날짜 · day=강의실
+  // 컬럼: 표(pane)=(날짜×선택 리소스, key는 표별 prefix로 유일) · week=날짜 · day=강의실
   type Col = {
     key: string; label: string; sub?: string; date: string; roomId?: number;
     resType?: SplitDim; resId?: number; firstOfDate?: boolean;
   };
-  const columns: Col[] = isSplit
-    ? buildMixedSplitColumns(view === "day" ? [anchor] : dates, splitPicks).map((c) => ({
-        key: c.key, label: c.label,
-        sub: view === "week" ? `${WD[weekdayOf(c.date)]} ${c.date.slice(5)}` : undefined,
-        date: c.date, roomId: c.roomId, resType: c.resType, resId: c.resId, firstOfDate: c.firstOfDate,
-      }))
-    : view === "day"
+  const paneNameOf = (dim: SplitDim, id: number): string =>
+    (dim === "room"
+      ? rooms.find((r) => Number(r.id) === id)?.name
+      : (dim === "instructor" ? resources?.instructors : resources?.students)?.find((r) => Number(r.id) === id)?.name) ?? `#${id}`;
+  const colsFor = (picks: MixedPick[], prefix = ""): Col[] =>
+    buildMixedSplitColumns(view === "day" ? [anchor] : dates, picks).map((c) => ({
+      key: prefix + c.key, label: c.label,
+      sub: view === "week" ? `${WD[weekdayOf(c.date)]} ${c.date.slice(5)}` : undefined,
+      date: c.date, roomId: c.roomId, resType: c.resType, resId: c.resId, firstOfDate: c.firstOfDate,
+    }));
+  const paneCols = (p: SplitPaneDef): Col[] =>
+    colsFor(p.ids.map((id) => ({ id, name: paneNameOf(p.dim, id), type: p.dim })), `p${p.uid}|`);
+  const columns: Col[] = view === "day"
       ? rooms.map((r) => ({ key: `r${r.id}`, label: r.name, date: anchor, roomId: r.id }))
       : dates.map((d) => ({ key: d, label: WD[weekdayOf(d)], sub: d.slice(5), date: d }));
 
@@ -823,152 +820,18 @@ export function ScheduleCalendar() {
   const scrollDetailIntoView = () =>
     setTimeout(() => detailPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 60);
 
-  return (
-    <div className="p-6 max-w-[1560px] mx-auto">
-      <div className="flex items-end justify-between flex-wrap gap-3 mb-4">
-        <div>
-          <h1 className="text-[20px] font-semibold">스케줄 캘린더</h1>
-          <p className="text-[13px] text-fg-muted mt-0.5">
-            드래그 이동 · Ctrl+드래그 복제 · Ctrl+C/V 복사·붙여넣기 · 빈 시간 클릭=커서 · {periodLabel}
-            <span className="text-fg-subtle">
-              {" "}
-              · {filtered.length}건{anyFilter ? ` / 전체 ${rows.length}` : ""} · 시수 {hrs.hours}h
-            </span>
-            {selected && <span className="text-accent"> · {selected.name} 개인 스케줄</span>}
-            {isSplit && (
-              <span className="text-accent">
-                {" "}· 스플릿 뷰(
-                {new Set(splitPicks.map((p) => p.type)).size > 1
-                  ? "강사+학생"
-                  : splitDim === "instructor" ? "강사" : splitDim === "student" ? "학생" : "강의실"}
-                {" "}{splitPicks.length}{compact ? " · 컴팩트" : ""})
-              </span>
-            )}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex rounded-md overflow-hidden border" style={{ borderColor: "var(--color-line)" }}>
-            {(["month", "week", "day"] as View[]).map((v) => (
-              <button
-                key={v}
-                className={`btn btn-sm rounded-none border-0 ${view === v ? "badge-accent" : ""}`}
-                onClick={() => setView(v)}
-              >
-                {v === "month" ? "월간" : v === "week" ? "주간" : "일간(강의실)"}
-              </button>
-            ))}
-          </div>
-          <button className="btn btn-sm" onClick={() => nav(-1)}>
-            ◀
-          </button>
-          <button className="btn btn-sm" onClick={() => setAnchor(todayISO())}>
-            오늘
-          </button>
-          <button className="btn btn-sm" onClick={() => nav(1)}>
-            ▶
-          </button>
-          {view === "day" && (
-            <input type="date" className="input h-7 w-36" value={anchor} onChange={(e) => setAnchor(e.target.value)} />
-          )}
-          {canAdd && resources && (
-            <button
-              className="btn btn-sm btn-primary"
-              onClick={() => setCreating({ date: view === "day" ? anchor : (dates.find((d) => d === todayISO()) ?? dates[0]) })}
-            >
-              + 스케줄 추가{isInstructor ? " (내 수업)" : ""}
-            </button>
-          )}
-          <button className="btn btn-sm" disabled={busyImg} onClick={() => saveImage("png")} title="현재 화면을 PNG로 저장">
-            PNG
-          </button>
-          <button className="btn btn-sm" disabled={busyImg} onClick={() => saveImage("jpeg")} title="현재 화면을 JPEG로 저장">
-            JPEG
-          </button>
-        </div>
-      </div>
-
-      <div className="flex gap-4 items-start">
-        {/* 좌측 추천 패널 제거(피드백 2026-07-02 #5) — 스플릿뷰로 강사·학생 스케줄을 직접 비교·배치. */}
-        {/* 본문 */}
-        <div className="flex-1 min-w-0 space-y-4">
-          {/* ── Lantiv형 필터 바: 리소스 다중선택(스플릿) + 상태/그룹/기간 + 검색/색 기준 ── */}
-          <CalendarFilterBar
-            resources={resources}
-            rooms={rooms}
-            q={q}
-            onQ={setQ}
-            colorBy={colorBy}
-            onColorBy={setColorBy}
-            fInstructors={fInstructors}
-            fStudents={fStudents}
-            fRooms={fRooms}
-            onToggleId={(dim, id) => {
-              const setter = dim === "instructor" ? setFInstructors : dim === "student" ? setFStudents : setFRooms;
-              setter((prev) => {
-                const n = new Set(prev);
-                if (n.has(id)) n.delete(id);
-                else n.add(id);
-                return n;
-              });
-            }}
-            onClearDim={(dim) =>
-              (dim === "instructor" ? setFInstructors : dim === "student" ? setFStudents : setFRooms)(new Set())
-            }
-            fStatuses={fStatuses}
-            onToggleStatus={(s) =>
-              setFStatuses((prev) => {
-                const n = new Set(prev);
-                if (n.has(s)) n.delete(s);
-                else n.add(s);
-                return n;
-              })
-            }
-            groupOnly={groupOnly}
-            onGroupOnly={setGroupOnly}
-            period={period}
-            onPeriod={setPeriod}
-            anyFilter={!!anyFilter}
-            onClearAll={clearFilters}
-          />
-          {selected && selBlocks.length > 0 && (
-            <p className="text-[12px] text-fg-subtle inline-flex items-center gap-2 flex-wrap">
-              <span className="inline-flex items-center gap-1">
-                <span className="inline-block w-3 h-3 rounded-sm" style={{ background: "rgba(26,127,55,.18)", borderLeft: "2px solid var(--color-success)" }} /> 가용
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <span className="inline-block w-3 h-3 rounded-sm" style={{ background: "repeating-linear-gradient(45deg, rgba(110,118,129,.18) 0 3px, rgba(110,118,129,.3) 3px 6px)" }} /> 불가
-              </span>
-              <span>밴드 클릭=선택 · 끝 드래그=시간 조절 · ✕=삭제</span>
-            </p>
-          )}
-
-          {msg && (
-            <div
-              className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 rounded-lg shadow-lg text-[13px] text-white flex items-center gap-2"
-              style={{ background: /(실패|없습니다|수 없|연결할 수|올바)/.test(msg) ? "var(--color-danger)" : "var(--color-success)" }}
-              role="status"
-            >
-              <span>{msg}</span>
-              <button onClick={() => setMsg("")} className="opacity-80 hover:opacity-100" aria-label="닫기">✕</button>
-            </div>
-          )}
-
-          <div ref={captureRef} className="bg-canvas">
-            {view === "month" ? (
-              <MonthGrid
-                anchor={anchor}
-                rows={filtered}
-                colorOf={colorOf}
-                onPick={(r) => setEditing(r)}
-                onPickDay={(d) => {
-                  setAnchor(d);
-                  setView("day");
-                }}
-                onCreateDay={(d) => canAdd && setCreating({ date: d })}
-              />
-            ) : (
+  // ── 타임그리드 렌더(공용) — 단일/스플릿 표가 같은 상호작용(드래그·커서·밴드·복제)을 공유 ──
+  //  열폭: 컨테이너를 균등 분할(flex-1). estColW(실측 기반 추정)로 텍스트 모드 결정,
+  //  minCol(스플릿 44px) 미만으로 좁아질 상황이면 가로 스크롤 발동(minWidth).
+  const renderTimeGrid = (cols: Col[]) => {
+    const isSplitGrid = cols[0]?.resType != null;
+    // 스플릿 표: 열폭 **고정 110px**(Lantiv식) — 사람이 많으면 표 안에서 가로 스크롤.
+    //  텍스트는 항상 제목+시간 표시(색상만 모드는 사용 안 함 — 가독성 피드백).
+    const textMode = (isSplitGrid ? "title" : "full") as "full" | "title" | "color";
+    const minCol = isSplitGrid ? 110 : COL_MIN;
+    return (
               <div className="card overflow-x-auto">
-                <div className="flex" style={{ minWidth: GUTTER_W + columns.length * COL_MIN }}>
+                <div className="flex" style={{ minWidth: GUTTER_W + cols.length * minCol }}>
                   {/* 시간 거터 */}
                   <div className="shrink-0 sticky left-0 z-10 bg-canvas" style={{ width: GUTTER_W }}>
                     <div style={{ height: HEADER_H }} />
@@ -986,7 +849,7 @@ export function ScheduleCalendar() {
                   </div>
                   {/* 컬럼들 */}
                   <div className="flex-1 flex">
-                    {columns.map((c) => {
+                    {cols.map((c) => {
                       const colRows = rowsOfColumn(c);
                       const sOf = (r: ScheduleRow) => (preview && preview.id === r.id ? preview.start : startMinOf(r));
                       const eOf = (r: ScheduleRow) => (preview && preview.id === r.id ? preview.end : endMinOf(r));
@@ -1000,7 +863,8 @@ export function ScheduleCalendar() {
                           style={{
                             borderColor: c.resType && c.firstOfDate ? "var(--color-line)" : "var(--color-line-muted)",
                             borderLeftWidth: c.resType && c.firstOfDate ? 2 : undefined,
-                            minWidth: c.resType ? (compact ? 56 : 96) : COL_MIN, // 컴팩트=색상 위주 표시
+                            minWidth: minCol,
+                            flex: c.resType ? `0 0 ${minCol}px` : undefined, // 스플릿=고정폭(스크롤), 일반=균등(flex-1)
                           }}
                         >
                           {/* 헤더: 스플릿=날짜+리소스명 · 주간=요일+날짜(오늘 강조) · 일간=강의실 */}
@@ -1179,19 +1043,24 @@ export function ScheduleCalendar() {
                                   {selEvent === r.id && (
                                     <div onPointerDown={(e) => onResizeDown(e, r, "top")} className="absolute left-1/2 -translate-x-1/2 top-0 w-6 h-2 rounded-b bg-white/90 cursor-ns-resize" />
                                   )}
-                                  {/* 컴팩트(좁은 스플릿 컬럼): 텍스트 생략, 색상 블록 + 툴팁만 — UI 최적화(피드백) */}
-                                  {!compact && (
-                                    <>
-                                      <div className={`font-semibold truncate ${isCanceledStatus(r.status) ? "line-through opacity-90" : ""}`}>
-                                        {labelOf(r)}{isCanceledStatus(r.status) ? ` (${STATUS_LABEL[r.status]})` : ""}
-                                      </div>
-                                      <div className="opacity-90 mono truncate">
-                                        {fromMin(s)}–{fromMin(en)}
-                                      </div>
-                                      <div className="opacity-80 truncate">
-                                        {r.memo ? r.memo : view === "week" ? (r.roomName ?? "") : r.instructorName}
-                                      </div>
-                                    </>
+                                  {/* 텍스트 모드(실제 열폭 기준): full=3줄 · title=제목 1줄 · color=색상만(아주 좁을 때) */}
+                                  {textMode !== "color" && (
+                                    <div
+                                      className={`font-semibold truncate ${isCanceledStatus(r.status) ? "line-through opacity-90" : ""}`}
+                                      style={textMode === "title" ? { fontSize: 10 } : undefined}
+                                    >
+                                      {labelOf(r)}{isCanceledStatus(r.status) ? ` (${STATUS_LABEL[r.status]})` : ""}
+                                    </div>
+                                  )}
+                                  {textMode !== "color" && (
+                                    <div className="opacity-90 mono truncate" style={textMode === "title" ? { fontSize: 9.5 } : undefined}>
+                                      {fromMin(s)}–{fromMin(en)}
+                                    </div>
+                                  )}
+                                  {textMode === "full" && (
+                                    <div className="opacity-80 truncate">
+                                      {r.memo ? r.memo : view === "week" ? (r.roomName ?? "") : r.instructorName}
+                                    </div>
                                   )}
                                   {selEvent === r.id && (
                                     <div onPointerDown={(e) => onResizeDown(e, r, "bottom")} className="absolute left-1/2 -translate-x-1/2 bottom-0 w-6 h-2 rounded-t bg-white/90 cursor-ns-resize" />
@@ -1206,6 +1075,178 @@ export function ScheduleCalendar() {
                   </div>
                 </div>
               </div>
+    );
+  };
+
+  return (
+    <div className="p-6 max-w-[1560px] mx-auto">
+      <div className="flex items-end justify-between flex-wrap gap-3 mb-4">
+        <div>
+          <h1 className="text-[20px] font-semibold">스케줄 캘린더</h1>
+          <p className="text-[13px] text-fg-muted mt-0.5">
+            드래그 이동 · Ctrl+드래그 복제 · Ctrl+C/V 복사·붙여넣기 · 빈 시간 클릭=커서 · {periodLabel}
+            <span className="text-fg-subtle">
+              {" "}
+              · {filtered.length}건{anyFilter ? ` / 전체 ${rows.length}` : ""} · 시수 {hrs.hours}h
+            </span>
+            {selected && <span className="text-accent"> · {selected.name} 개인 스케줄</span>}
+            {isSplit && (
+              <span className="text-accent">
+                {" "}· 표 분할 {panes.length}개({panes.map((p) => `${p.dim === "instructor" ? "강사" : p.dim === "student" ? "학생" : "강의실"} ${p.ids.length}`).join(" | ")})
+              </span>
+            )}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex rounded-md overflow-hidden border" style={{ borderColor: "var(--color-line)" }}>
+            {(["month", "week", "day"] as View[]).map((v) => (
+              <button
+                key={v}
+                className={`btn btn-sm rounded-none border-0 ${view === v ? "badge-accent" : ""}`}
+                onClick={() => setView(v)}
+              >
+                {v === "month" ? "월간" : v === "week" ? "주간" : "일간(강의실)"}
+              </button>
+            ))}
+          </div>
+          <button className="btn btn-sm" onClick={() => nav(-1)}>
+            ◀
+          </button>
+          <button className="btn btn-sm" onClick={() => setAnchor(todayISO())}>
+            오늘
+          </button>
+          <button className="btn btn-sm" onClick={() => nav(1)}>
+            ▶
+          </button>
+          {view === "day" && (
+            <input type="date" className="input h-7 w-36" value={anchor} onChange={(e) => setAnchor(e.target.value)} />
+          )}
+          <button
+            className={`btn btn-sm ${panes.length ? "badge-accent" : ""}`}
+            onClick={() => (panes.length ? setPanes([]) : (addPane("instructor"), addPane("student")))}
+            title="표 분할 — 표마다 강사/학생을 따로 선택해 나란히 비교(Lantiv). 다시 누르면 해제"
+          >
+            ⊞ 표 분할{panes.length ? ` ${panes.length}` : ""}
+          </button>
+          {canAdd && resources && (
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={() => setCreating({ date: view === "day" ? anchor : (dates.find((d) => d === todayISO()) ?? dates[0]) })}
+            >
+              + 스케줄 추가{isInstructor ? " (내 수업)" : ""}
+            </button>
+          )}
+          <button className="btn btn-sm" disabled={busyImg} onClick={() => saveImage("png")} title="현재 화면을 PNG로 저장">
+            PNG
+          </button>
+          <button className="btn btn-sm" disabled={busyImg} onClick={() => saveImage("jpeg")} title="현재 화면을 JPEG로 저장">
+            JPEG
+          </button>
+        </div>
+      </div>
+
+      <div className="flex gap-4 items-start">
+        {/* 좌측 추천 패널 제거(피드백 2026-07-02 #5) — 스플릿뷰로 강사·학생 스케줄을 직접 비교·배치. */}
+        {/* 본문 */}
+        <div className="flex-1 min-w-0 space-y-4">
+          {/* ── Lantiv형 필터 바: 리소스 다중선택(스플릿) + 상태/그룹/기간 + 검색/색 기준 ── */}
+          <CalendarFilterBar
+            resources={resources}
+            rooms={rooms}
+            q={q}
+            onQ={setQ}
+            colorBy={colorBy}
+            onColorBy={setColorBy}
+            fInstructors={fInstructors}
+            fStudents={fStudents}
+            fRooms={fRooms}
+            onToggleId={(dim, id) => {
+              const setter = dim === "instructor" ? setFInstructors : dim === "student" ? setFStudents : setFRooms;
+              setter((prev) => {
+                const n = new Set(prev);
+                if (n.has(id)) n.delete(id);
+                else n.add(id);
+                return n;
+              });
+            }}
+            onClearDim={(dim) =>
+              (dim === "instructor" ? setFInstructors : dim === "student" ? setFStudents : setFRooms)(new Set())
+            }
+            fStatuses={fStatuses}
+            onToggleStatus={(s) =>
+              setFStatuses((prev) => {
+                const n = new Set(prev);
+                if (n.has(s)) n.delete(s);
+                else n.add(s);
+                return n;
+              })
+            }
+            groupOnly={groupOnly}
+            onGroupOnly={setGroupOnly}
+            period={period}
+            onPeriod={setPeriod}
+            anyFilter={!!anyFilter}
+            onClearAll={clearFilters}
+          />
+          {selected && selBlocks.length > 0 && (
+            <p className="text-[12px] text-fg-subtle inline-flex items-center gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1">
+                <span className="inline-block w-3 h-3 rounded-sm" style={{ background: "rgba(26,127,55,.18)", borderLeft: "2px solid var(--color-success)" }} /> 가용
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="inline-block w-3 h-3 rounded-sm" style={{ background: "repeating-linear-gradient(45deg, rgba(110,118,129,.18) 0 3px, rgba(110,118,129,.3) 3px 6px)" }} /> 불가
+              </span>
+              <span>밴드 클릭=선택 · 끝 드래그=시간 조절 · ✕=삭제</span>
+            </p>
+          )}
+
+          {msg && (
+            <div
+              className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 rounded-lg shadow-lg text-[13px] text-white flex items-center gap-2"
+              style={{ background: /(실패|없습니다|수 없|연결할 수|올바)/.test(msg) ? "var(--color-danger)" : "var(--color-success)" }}
+              role="status"
+            >
+              <span>{msg}</span>
+              <button onClick={() => setMsg("")} className="opacity-80 hover:opacity-100" aria-label="닫기">✕</button>
+            </div>
+          )}
+
+          <div ref={captureRef} className="bg-canvas">
+            {view === "month" ? (
+              <MonthGrid
+                anchor={anchor}
+                rows={filtered}
+                colorOf={colorOf}
+                onPick={(r) => setEditing(r)}
+                onPickDay={(d) => {
+                  setAnchor(d);
+                  setView("day");
+                }}
+                onCreateDay={(d) => canAdd && setCreating({ date: d })}
+              />
+            ) : isSplit ? (
+              /* 표 분할(Lantiv) — 표마다 독립 선택(CalendarSplitPane). 그리드 로직은 renderTimeGrid 공유 */
+              <div className="flex gap-3 items-start overflow-x-auto pb-1">
+                {panes.map((p) => (
+                  <CalendarSplitPane
+                    key={p.uid}
+                    pane={p}
+                    resources={resources}
+                    rooms={rooms}
+                    onChange={(patch) => updatePane(p.uid, patch)}
+                    onRemove={() => removePane(p.uid)}
+                  >
+                    {renderTimeGrid(paneCols(p))}
+                  </CalendarSplitPane>
+                ))}
+                {panes.length < 3 && (
+                  <button className="btn btn-sm shrink-0 mt-8" onClick={() => addPane(panes[0]?.dim === "instructor" ? "student" : "instructor")} title="표 추가(최대 3개)">
+                    + 표
+                  </button>
+                )}
+              </div>
+            ) : (
+              renderTimeGrid(columns)
             )}
           </div>
           {isGrid && selected?.type === "instructor" && (

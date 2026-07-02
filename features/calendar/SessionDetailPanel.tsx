@@ -5,6 +5,7 @@
 //    (반복 시리즈면 부모가 범위(scope) 확인 → 관련 조인·시수 무효화는 백엔드+쿼리 invalidate가 담당).
 //  - 더블클릭 상세편집 모달은 유지 — "상세 편집" 버튼으로도 진입(onOpenModal).
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import type { Room, ScheduleRow } from "@/types";
 import type { SchedulePatchBody } from "@/lib/api";
 import { WEEKDAYS_KO as WD } from "@/lib/domain/schedule";
@@ -37,7 +38,14 @@ export function SessionDetailPanel({
     <div className="card overflow-hidden">
       <div className="px-3 h-10 flex items-center gap-2 border-b" style={{ borderColor: "var(--color-line)" }}>
         <span className="inline-block w-3 h-3 rounded-sm shrink-0" style={{ background: colorOf(row) }} />
-        <span className="text-[13px] font-semibold truncate flex-1">{row.courseName}</span>
+        {/* 제목 클릭 = 수업 상세 페이지(학생 출결 관리) — 피드백 2026-07-02 */}
+        <Link
+          href={`/sessions/${row.id}`}
+          className="text-[13px] font-semibold truncate flex-1 hover:underline text-accent"
+          title="수업 상세 페이지로 — 학생 출결 관리"
+        >
+          {row.courseName} →
+        </Link>
         {row.seriesId != null && <span className="badge badge-accent">반복</span>}
       </div>
       <div className="card-pad space-y-2.5">

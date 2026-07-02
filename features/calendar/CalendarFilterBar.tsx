@@ -21,7 +21,7 @@ const DIM_META: Record<FilterDim, { icon: string; label: string }> = {
 type Option = { id: number; name: string; color?: string; sub?: string };
 
 // ── 체크박스 팝오버(검색 + 다중선택 + 색 스와치) — Lantiv 리소스 드롭다운 ──
-function MultiPick({
+export function MultiPick({
   dim, options, picked, onToggle, onClear,
 }: {
   dim: FilterDim;
