@@ -774,6 +774,10 @@ export function ScheduleCalendar() {
   // 그룹 토글 차원: 학생 선택 시 학생별(스펙), 그 외 강의실 > 강사 순 폴백
   const listGroupDim: Exclude<ListGroupBy, "none"> = fStudents.size ? "student" : fRooms.size ? "room" : "instructor";
   const detailRow = detailId != null ? (rows.find((r) => r.id === detailId) ?? null) : null;
+  // QA(2026-07-02): 리스트 클릭 시 상세 패널이 뷰포트 아래에 있어 안 보임 → 선택 시 자동 스크롤.
+  const detailPanelRef = useRef<HTMLDivElement>(null);
+  const scrollDetailIntoView = () =>
+    setTimeout(() => detailPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 60);
 
   return (
     <div className="p-6 max-w-[1560px] mx-auto">
@@ -1148,9 +1152,11 @@ export function ScheduleCalendar() {
               setSelEvent(r.id);
               // 리스트 항목이 현재 뷰 기간 밖이면 그 날짜로 이동(그리드에서 바로 보이게)
               if (r.sessionDate < range.from || r.sessionDate > range.to) setAnchor(r.sessionDate);
+              scrollDetailIntoView();
             }}
             colorOf={colorOf}
           />
+          <div ref={detailPanelRef}>
           <SessionDetailPanel
             row={detailRow}
             rooms={rooms}
@@ -1159,6 +1165,7 @@ export function ScheduleCalendar() {
             onPatch={(r, patch, label) => requestChange(r, patch, label)}
             onOpenModal={(r) => setEditing(r)}
           />
+          </div>
         </div>
       </div>
 
