@@ -38,7 +38,8 @@ function ResourcePanelImpl({
   const changeTab = (k: RType) => { setTab(k); setPage(0); setQ(""); };
 
   return (
-    <aside className="w-56 shrink-0 card overflow-hidden self-start sticky top-4">
+    // 폭·고정(sticky)은 부모 우측 컬럼(ScheduleCalendar)이 담당 — 리스트·상세 패널과 세로 스택
+    <aside className="w-full card overflow-hidden">
       <button
         onClick={() => setOpen((o) => !o)}
         className="w-full px-3 h-10 flex items-center justify-between border-b"
