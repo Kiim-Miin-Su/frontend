@@ -1,32 +1,8 @@
-// 주간 스케줄 → 엑셀(.xlsx) / 이미지(PNG·JPEG) 내보내기. (브라우저 다운로드)
-import * as XLSX from "xlsx";
+// 캘린더 → 이미지(PNG·JPEG) 내보내기. (브라우저 다운로드)
+// [감사 C, 2026-07-02] xlsx(SheetJS) 내보내기 제거 — npm audit high(ReDoS, 패치 없음) +
+//  유일 사용처 WeeklyTable(주간 표)이 캘린더 통합(TBO-03)으로 데드코드였음. 엑셀이 다시
+//  필요해지면 exceljs 등 유지보수되는 라이브러리로 서버측(백엔드) 생성 권장.
 import { toPng, toJpeg } from "html-to-image";
-import type { ScheduleRow } from "@/types";
-
-const WD = ["일", "월", "화", "수", "목", "금", "토"];
-
-function toRows(rows: ScheduleRow[]) {
-  return rows.map((r) => ({
-    날짜: r.sessionDate,
-    요일: WD[r.weekday] ?? "",
-    시작: r.startTime ?? "",
-    종료: r.endTime ?? "",
-    과목: r.subjectName,
-    수업: r.courseName,
-    강사: r.instructorName,
-    강의실: r.roomName ?? "",
-    학생: (r.studentNames ?? []).join(", "),
-    상태: r.status,
-  }));
-}
-
-export function exportScheduleXlsx(rows: ScheduleRow[], filename = "timetable.xlsx") {
-  const ws = XLSX.utils.json_to_sheet(toRows(rows));
-  ws["!cols"] = [12, 6, 7, 7, 8, 18, 10, 12, 16, 10].map((w) => ({ wch: w }));
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "주간 스케줄");
-  XLSX.writeFile(wb, filename);
-}
 
 // 캘린더/표 DOM 노드를 이미지로 캡처해 다운로드(PNG 또는 JPEG).
 // 화면에서 칸이 좁아 시간표가 잘 안 보이는 문제 → 캡처 직전 노드를 가로(랜드스케이프)

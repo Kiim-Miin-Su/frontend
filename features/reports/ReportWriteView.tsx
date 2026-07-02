@@ -11,7 +11,7 @@ import {
   useCreateReport, useSubmitReport,
 } from '@/lib/queries';
 import { DEMO_INSTRUCTOR_ID } from '@/lib/tasks';
-import { pendingReportSummary, sessionNeedsReport } from '@/lib/reports';
+import { pendingReportSummary, rosterStudentIds, sessionNeedsReport } from '@/lib/reports';
 import type { ClassSession, ReportStatus, Student } from '@/types';
 
 const reportTone: Record<ReportStatus, Tone> = { draft: 'neutral', submitted: 'accent', sent: 'success' };
@@ -44,10 +44,10 @@ export function ReportWriteView() {
     [classSessions, instructorId],
   );
 
+  // 로스터 = lib/reports.rosterStudentIds(활성 수강만) — 배지·미작성 집계와 같은 모집단(단일 소스).
   const rosterOf = (courseId: number): Student[] =>
-    enrollments
-      .filter((e) => e.courseId === courseId)
-      .map((e) => students.find((s) => s.id === e.studentId))
+    rosterStudentIds({ enrollments }, courseId)
+      .map((id) => students.find((s) => s.id === id))
       .filter((s): s is Student => Boolean(s));
 
   const reportFor = (sid: number, stid: number) =>

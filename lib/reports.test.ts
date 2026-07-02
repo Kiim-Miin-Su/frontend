@@ -33,6 +33,15 @@ describe('sessionNeedsReport (강건성: 실제 종료된 수업만)', () => {
     expect(sessionNeedsReport(slice, ses({ sessionDate: '2026-06-20', status: 'scheduled' }), NOW)).toBe(false);
   });
 
+  it('취소(canceled) 수강은 리포트 대상에서 제외 — 백엔드 코호트와 동일 규칙(감사 B)', () => {
+    const s2: ReportSlice = {
+      classSessions: [],
+      enrollments: [enr({ id: 1, studentId: 1 }), enr({ id: 2, studentId: 4, status: 'canceled' })],
+      sessionReports: [],
+    };
+    expect(missingReportStudentIds(s2, ses({ sessionDate: '2026-06-29' }), NOW)).toEqual([1]); // 4 제외
+  });
+
   it('이미 작성(non-draft)된 학생만 있으면 → 대상 아님', () => {
     const reports: SessionReport[] = [{ id: 1, sessionId: 1, studentId: 1, instructorId: 1, content: 'x', status: 'submitted' } as SessionReport];
     const s2: ReportSlice = { classSessions: [], enrollments: [enr({})], sessionReports: reports };

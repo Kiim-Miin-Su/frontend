@@ -8,7 +8,7 @@ import { Badge, SectionCard, type Tone } from '@/components/ui';
 import {
   useSchedule, useCourses, useInstructors, useEnrollments, useStudents, useReports, useAttendance,
 } from '@/lib/queries';
-import { pendingReportSummary } from '@/lib/reports';
+import { pendingReportSummary, rosterStudentIds } from '@/lib/reports';
 import { useTacoStore } from '@/lib/store';
 import { DEMO_INSTRUCTOR_ID } from '@/lib/tasks';
 import type { AttendanceStatus, ReportStatus } from '@/types';
@@ -62,10 +62,10 @@ export function ReportsCalendarView() {
   const instructorName = (id: number) => instructors.find((i) => i.id === id)?.name ?? '—';
 
   const session = selected != null ? classSessions.find((s) => s.id === selected) : undefined;
+  // 로스터 = lib/reports.rosterStudentIds(활성 수강만) — 미작성 집계·배지와 동일 모집단(단일 소스).
   const roster = session
-    ? enrollments
-        .filter((e) => e.courseId === session.courseId)
-        .map((e) => students.find((s) => s.id === e.studentId))
+    ? rosterStudentIds({ enrollments }, session.courseId)
+        .map((id) => students.find((s) => s.id === id))
         .filter((s): s is NonNullable<typeof s> => Boolean(s))
     : [];
 
@@ -164,7 +164,7 @@ export function ReportsCalendarView() {
                 <thead><tr><th>날짜</th><th>수업</th><th>강사</th><th className="text-right">리포트</th><th></th></tr></thead>
                 <tbody>
                   {monthSessions.map((s) => {
-                    const ids = enrollments.filter((e) => e.courseId === s.courseId).map((e) => e.studentId);
+                    const ids = rosterStudentIds({ enrollments }, s.courseId); // 활성 수강만(단일 소스)
                     const done = sessionReports.filter((r) => r.sessionId === s.id && ids.includes(r.studentId) && r.status !== 'draft').length;
                     return (
                       <tr key={s.id} className={s.id === selected ? 'bg-accent-subtle' : ''}>

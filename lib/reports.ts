@@ -15,8 +15,12 @@ export type ReportSlice = {
   sessionReports: SessionReport[];
 };
 
-function rosterStudentIds(s: ReportSlice, courseId: number): number[] {
-  return s.enrollments.filter((e) => e.courseId === courseId).map((e) => e.studentId);
+// 코스 로스터(리포트 대상 수강생) — **활성 수강만**(enrollment.status==='active').
+//  백엔드 스케줄 코호트(activeStudentIds)와 동일 규칙(감사 B): 취소/일시정지/완료 수강생은
+//  리포트 미작성 집계에서 제외(소프트삭제된 학생은 enrollment도 canceled로 정리됨 — students.remove).
+//  export: ReportWriteView/ReportsCalendarView가 자체 rosterOf 중복 대신 이 함수를 쓴다(단일 소스).
+export function rosterStudentIds(s: Pick<ReportSlice, 'enrollments'>, courseId: number): number[] {
+  return s.enrollments.filter((e) => e.courseId === courseId && e.status === 'active').map((e) => e.studentId);
 }
 
 // 세션 종료 시각(ms). endTime 없으면 startTime + durationMinutes로 계산. (로컬 시각 기준)
