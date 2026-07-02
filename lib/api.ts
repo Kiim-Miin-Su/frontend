@@ -169,6 +169,7 @@ export const api = {
     list: () => http.get<Student[]>("/students").then((r) => r.data),
     get: (id: number) => http.get<Student>(`/students/${id}`).then((r) => r.data),
     create: (body: CreateStudentInput) => http.post<Student>("/students", body).then((r) => r.data),
+    remove: (id: number) => http.delete<Student>(`/students/${id}`).then((r) => r.data),
   },
   enrollments: {
     list: (studentId?: number) =>

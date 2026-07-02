@@ -16,6 +16,7 @@ export function ExpenseDetailView({ expenseId }: { expenseId: number }) {
   const approveExpense = useApproveExpense();
   const rejectExpense = useRejectExpense();
   const rejectReasons = useTacoStore((s) => s.expenseRejectReasons);
+  const setExpenseRejectReason = useTacoStore((s) => s.setExpenseRejectReason);
   const [modal, setModal] = useState<'reject' | 'viewReason' | null>(null);
 
   if (!expense) {
@@ -77,7 +78,7 @@ export function ExpenseDetailView({ expenseId }: { expenseId: number }) {
 
       {modal === 'reject' && (
         <ReasonModal mode="input" title="지출 반려" onClose={() => setModal(null)}
-          onSubmit={(reason) => { rejectExpense.mutate(expense.id); setModal(null); }} />
+          onSubmit={(reason) => { rejectExpense.mutate(expense.id); setExpenseRejectReason(expense.id, reason); setModal(null); }} />
       )}
       {modal === 'viewReason' && (
         <ReasonModal mode="view" title="지출 반려 사유" initial={rejectReasons[expense.id] ?? ''} onClose={() => setModal(null)} />

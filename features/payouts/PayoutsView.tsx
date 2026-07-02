@@ -2,6 +2,7 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { Badge, SectionCard, type Tone } from '@/components/ui';
 import { useTacoStore } from '@/lib/store';
+import { useSchedule, useCourses, useSubjects, useEnrollments, useStudents } from '@/lib/queries';
 import { isAdmin } from '@/lib/roles';
 import { won } from '@/lib/format';
 import { api, type MeasureResult, type PayoutRow, type PayoutRowStatus, type PayoutLine } from '@/lib/api';
@@ -20,12 +21,12 @@ type Conn = 'checking' | 'online' | 'offline';
 export function PayoutsView() {
   const role = useTacoStore((s) => s.currentRole);
   const admin = isAdmin(role);
-  // 정산 근거를 사람이 읽을 수 있게 — 세션→시각, 코스→과목, 코스→수강 학생 조인(스토어).
-  const classSessions = useTacoStore((s) => s.classSessions);
-  const courses = useTacoStore((s) => s.courses);
-  const subjects = useTacoStore((s) => s.subjects);
-  const enrollments = useTacoStore((s) => s.enrollments);
-  const students = useTacoStore((s) => s.students);
+  // 정산 근거를 사람이 읽을 수 있게 — 세션→시각, 코스→과목, 코스→수강 학생 조인(Query 훅).
+  const { data: classSessions = [] } = useSchedule();
+  const { data: courses = [] } = useCourses();
+  const { data: subjects = [] } = useSubjects();
+  const { data: enrollments = [] } = useEnrollments();
+  const { data: students = [] } = useStudents();
   const lineDetail = useCallback((line: PayoutLine) => {
     const ses = classSessions.find((s) => s.id === line.sessionId);
     const course = courses.find((c) => c.id === line.courseId);

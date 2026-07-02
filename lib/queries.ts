@@ -100,6 +100,7 @@ export const useCreateRoadmap = () => useMutation({ mutationFn: api.roadmaps.cre
 
 // 명단(학생·수강)
 export const useCreateStudent = () => useMutation({ mutationFn: api.students.create, onSuccess: useInvalidator([qk.students.all]) });
+export const useRemoveStudent = () => useMutation({ mutationFn: api.students.remove, onSuccess: useInvalidator([qk.students.all, qk.enrollments.all]) });
 export const useCreateEnrollment = () => useMutation({ mutationFn: api.enrollments.create, onSuccess: useInvalidator([qk.enrollments.all, qk.students.all]) });
 
 // 결제
