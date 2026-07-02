@@ -3,6 +3,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Badge, SectionCard, type Tone } from '@/components/ui';
 import { useTacoStore } from '@/lib/store';
+import { sessionNeedsReport } from '@/lib/reports';
 import type { AttendanceStatus, ReportStatus } from '@/types';
 
 const attLabel: Record<AttendanceStatus, string> = { present: '출석', late: '지각', absent: '결석', excused: '인정결석' };
@@ -16,6 +17,7 @@ export function ReportsCalendarView() {
   const store = useTacoStore();
   const [ym, setYm] = useState({ y: 2026, m: 5 }); // 0-based: 2026-06
   const [selected, setSelected] = useState<number | null>(null);
+  const [needOnly, setNeedOnly] = useState(true); // 기본: 배지와 동일 기준(작성 필요)만
 
   const startWeekday = new Date(ym.y, ym.m, 1).getDay();
   const daysInMonth = new Date(ym.y, ym.m + 1, 0).getDate();
@@ -107,13 +109,22 @@ export function ReportsCalendarView() {
 
       {/* 수업 리스트 — 캘린더와 별도 컴포넌트(리포트 진행률·바로 작성) */}
       {(() => {
-        const monthSessions = store.classSessions
+        const inMonth = store.classSessions
           .filter((cs) => cs.sessionDate.startsWith(monthStr))
           .sort((a, b) => (a.sessionDate + (a.startTime ?? '')).localeCompare(b.sessionDate + (b.startTime ?? '')));
+        // 기본은 배지와 동일 기준(작성 필요=held·지난·미작성)만. 전체 보기로 전환 가능.
+        const monthSessions = needOnly ? inMonth.filter((cs) => sessionNeedsReport(store, cs)) : inMonth;
         return (
-          <SectionCard title={`수업 리스트 (${monthSessions.length})`}>
+          <SectionCard
+            title={needOnly ? `작성 필요 (${monthSessions.length})` : `수업 리스트 (${monthSessions.length})`}
+            action={
+              <button className="btn btn-sm" onClick={() => setNeedOnly((v) => !v)}>
+                {needOnly ? '전체 보기' : '작성 필요만'}
+              </button>
+            }
+          >
             {monthSessions.length === 0 ? (
-              <div className="p-4 text-[13px] text-fg-subtle">이 달 수업이 없습니다.</div>
+              <div className="p-4 text-[13px] text-fg-subtle">{needOnly ? '이 달 작성할 리포트가 없습니다.' : '이 달 수업이 없습니다.'}</div>
             ) : (
               <table className="table">
                 <thead><tr><th>날짜</th><th>수업</th><th>강사</th><th className="text-right">리포트</th><th></th></tr></thead>

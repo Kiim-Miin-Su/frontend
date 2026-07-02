@@ -4,13 +4,12 @@ import Link from "next/link";
 import type { ScheduleRow, Room, Conflict, ScheduleResources, ScheduleResource, AvailabilityBlock, AccountRole } from "@/types";
 import { api, type SchedulePatchBody, type ScheduleCreateBody, type AvailabilityUpsertBody } from "@/lib/api";
 import { weekDates, weekdayOf, layoutLanes, teachingHours, toMin as toMinD, ownerWindows } from "@/lib/domain/schedule";
-import { exportScheduleXlsx, exportNodeAsImage } from "@/lib/export";
+import { exportNodeAsImage } from "@/lib/export";
 import { useTacoStore } from "@/lib/store";
 import { isAdmin, roleLabel } from "@/lib/roles";
 import { currentClaims } from "@/lib/auth";
 import { StudentMatchPanel } from "./StudentMatchPanel";
 import { ResourcePanel } from "./ResourcePanel";
-import { TableView } from "./TableView";
 
 // ── 그리드 상수 (애플/구글 캘린더 스타일: 넓고 시간 단위가 또렷하게) ──
 const START_H = 8,
@@ -56,7 +55,7 @@ const hashColor = (s: string) => PALETTE[[...s].reduce((a, c) => a + c.charCodeA
 const startMinOf = (r: ScheduleRow) => toMin(r.startTime ?? "09:00");
 const endMinOf = (r: ScheduleRow) => (r.endTime ? toMin(r.endTime) : startMinOf(r) + r.durationMinutes);
 
-type View = "month" | "week" | "day" | "table";
+type View = "month" | "week" | "day";
 type ColorBy = "subject" | "instructor" | "room" | "student";
 type Resizing = { id: number; edge: "top" | "bottom"; startClientY: number; origStart: number; origEnd: number };
 type Pending = { row: ScheduleRow; patch: SchedulePatchBody; label: string };
@@ -568,7 +567,7 @@ export function ScheduleCalendar() {
       if (claims) who = `${claims.name}${roleLabel[(claims.roles?.[0] ?? "") as AccountRole] ?? ""}`;
     }
     const yymmdd = anchor.slice(2, 4) + anchor.slice(5, 7) + anchor.slice(8, 10);
-    const viewWord = view === "month" ? "monthly" : view === "week" ? "weekly" : view === "day" ? "daily" : "table";
+    const viewWord = view === "month" ? "monthly" : view === "week" ? "weekly" : "daily";
     const safe = (s: string) => s.replace(/[\\/:*?"<>|\s]+/g, ""); // 파일명 금지문자·공백 제거
     return `${safe(who)}_${yymmdd}_${viewWord}.${ext}`;
   }
@@ -713,13 +712,13 @@ export function ScheduleCalendar() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex rounded-md overflow-hidden border" style={{ borderColor: "var(--color-line)" }}>
-            {(["month", "week", "day", "table"] as View[]).map((v) => (
+            {(["month", "week", "day"] as View[]).map((v) => (
               <button
                 key={v}
                 className={`btn btn-sm rounded-none border-0 ${view === v ? "badge-accent" : ""}`}
                 onClick={() => setView(v)}
               >
-                {v === "month" ? "월간" : v === "week" ? "주간" : v === "day" ? "일간(강의실)" : "표"}
+                {v === "month" ? "월간" : v === "week" ? "주간" : "일간(강의실)"}
               </button>
             ))}
           </div>
@@ -741,15 +740,6 @@ export function ScheduleCalendar() {
               onClick={() => setCreating({ date: view === "day" ? anchor : (dates.find((d) => d === todayISO()) ?? dates[0]) })}
             >
               + 스케줄 추가{isInstructor ? " (내 수업)" : ""}
-            </button>
-          )}
-          {view === "table" && (
-            <button
-              className="btn btn-sm btn-primary"
-              disabled={!filtered.length}
-              onClick={() => exportScheduleXlsx(filtered, downloadName("xlsx"))}
-            >
-              엑셀
             </button>
           )}
           <button className="btn btn-sm" disabled={busyImg} onClick={() => saveImage("png")} title="현재 화면을 PNG로 저장">
@@ -835,15 +825,6 @@ export function ScheduleCalendar() {
                   setView("day");
                 }}
                 onCreateDay={(d) => canAdd && setCreating({ date: d })}
-              />
-            ) : view === "table" ? (
-              <TableView
-                dates={dates}
-                rows={filtered}
-                blocks={selBlocks}
-                colorOf={colorOf}
-                labelOf={labelOf}
-                onPick={(r) => setEditing(r)}
               />
             ) : (
               <div className="card overflow-x-auto">

@@ -42,8 +42,14 @@ export function ReportWriteView() {
     return { done, total: roster.length };
   };
 
+  // 배지와 동일 기준의 "작성 필요"(held·지난 수업·미작성) 목록. 기본은 이 목록만 노출(배지=리스트 일치).
+  // 전체 보기로 전환하면 예정·완료 수업도 열어 편집 가능.
+  const needSessions = useMemo(() => sessions.filter((s) => sessionNeedsReport(store, s)), [sessions, store]);
+  const [needOnly, setNeedOnly] = useState(true);
+  const listSessions = needOnly ? needSessions : sessions;
+
   // 기본 선택: 리포트가 필요한 첫 진행완료 수업 (단일 소스: lib/reports)
-  const firstNeed = sessions.find((s) => sessionNeedsReport(store, s));
+  const firstNeed = needSessions[0];
   const [selId, setSelId] = useState<number | undefined>(firstNeed?.id ?? sessions[0]?.id);
   const selected = sessions.find((s) => s.id === selId);
   const roster = selected ? rosterOf(selected.courseId) : [];
@@ -59,10 +65,17 @@ export function ReportWriteView() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4 items-start">
-        {/* 좌: 내 수업 목록 */}
-        <SectionCard title={`내 수업 (${sessions.length})`}>
+        {/* 좌: 내 수업 목록 — 기본은 배지와 동일 기준(작성 필요)만 */}
+        <SectionCard
+          title={needOnly ? `작성 필요 (${needSessions.length})` : `내 수업 (${sessions.length})`}
+          action={
+            <button className="btn btn-sm" onClick={() => setNeedOnly((v) => !v)}>
+              {needOnly ? '전체 보기' : '작성 필요만'}
+            </button>
+          }
+        >
           <ul className="divide-y max-h-[68vh] overflow-y-auto" style={{ borderColor: 'var(--color-line-muted)' }}>
-            {sessions.map((s) => {
+            {listSessions.map((s) => {
               const p = progressOf(s);
               const active = s.id === selId;
               const need = sessionNeedsReport(store, s);
@@ -85,7 +98,11 @@ export function ReportWriteView() {
                 </li>
               );
             })}
-            {sessions.length === 0 && <li className="p-4 text-[13px] text-fg-subtle">담당 수업이 없습니다.</li>}
+            {listSessions.length === 0 && (
+              <li className="p-4 text-[13px] text-fg-subtle">
+                {needOnly ? '작성할 리포트가 없습니다. (진행완료·지난 수업 모두 작성됨)' : '담당 수업이 없습니다.'}
+              </li>
+            )}
           </ul>
         </SectionCard>
 

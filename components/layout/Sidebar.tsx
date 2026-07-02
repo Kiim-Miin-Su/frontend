@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useTacoStore } from "@/lib/store";
-import { roleLabel } from "@/lib/roles";
+import { roleLabel, isCEO } from "@/lib/roles";
 import { navBadges } from "@/lib/tasks";
 import { decodeToken, getToken } from "@/lib/auth";
 import { api } from "@/lib/api";
@@ -121,7 +121,10 @@ export default function Sidebar() {
       )}
 
       <nav className="flex-1 overflow-y-auto py-3">
-        {groups.map((g) => (
+        {(isCEO(role)
+          ? [...groups, { title: "경영", items: [{ label: "경영 지표", icon: IconReceipt, href: "/insights" }] }]
+          : groups
+        ).map((g) => (
           <div key={g.title} className={`mb-3 ${collapsed ? "px-1.5" : "px-3"}`}>
             {!collapsed && <div className="px-2 mb-1 text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">{g.title}</div>}
             {g.items.map((it) => {

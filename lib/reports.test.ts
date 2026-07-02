@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { sessionNeedsReport, pendingReportItemCount, type ReportSlice } from './reports';
+import {
+  missingReportStudentIds,
+  sessionNeedsReport,
+  pendingReportSessions,
+  pendingReportCount,
+  pendingReportItemCount,
+  type ReportSlice,
+} from './reports';
 import type { ClassSession, Enrollment, SessionReport } from '@/types';
 
 const ses = (p: Partial<ClassSession>): ClassSession => ({
@@ -48,5 +55,32 @@ describe('pendingReportItemCount (종료된 수업의 미작성 보고서 건수
       enrollments: [enr({})], sessionReports: [],
     };
     expect(pendingReportItemCount(slice, undefined, NOW)).toBe(0);
+  });
+});
+
+// 단일 소스: 모든 파생 함수가 missingReportStudentIds 하나에서 나온다.
+describe('단일 기준 함수 missingReportStudentIds ↔ 파생 일치', () => {
+  // 종료된 held 세션, 수강생 2명(1·4) 중 1명(1)만 작성 → 미작성 학생 [4].
+  const slice: ReportSlice = {
+    classSessions: [ses({ id: 1, sessionDate: '2026-06-29' })],
+    enrollments: [enr({ id: 1, studentId: 1 }), enr({ id: 2, studentId: 4 })],
+    sessionReports: [{ id: 1, sessionId: 1, studentId: 1, instructorId: 1, content: 'x', status: 'submitted' } as SessionReport],
+  };
+
+  it('미작성 학생 목록 = [4] (수업 1건이지만 보고서 누락은 1건)', () => {
+    expect(missingReportStudentIds(slice, slice.classSessions[0], NOW)).toEqual([4]);
+  });
+
+  it('세션 수(1) vs 보고서 건수(1) — 같은 기준에서 파생', () => {
+    expect(pendingReportCount(slice, undefined, NOW)).toBe(1);      // 미작성 세션 1건
+    expect(pendingReportItemCount(slice, undefined, NOW)).toBe(1);  // 미작성 보고서 1건
+    expect(pendingReportSessions(slice, undefined, NOW).map((s) => s.id)).toEqual([1]);
+    expect(sessionNeedsReport(slice, slice.classSessions[0], NOW)).toBe(true);
+  });
+
+  it('보고서 건수 > 세션 수 케이스(2명 모두 미작성) — 배지=건수 반영', () => {
+    const s2: ReportSlice = { ...slice, sessionReports: [] };
+    expect(pendingReportCount(s2, undefined, NOW)).toBe(1);     // 수업은 1건
+    expect(pendingReportItemCount(s2, undefined, NOW)).toBe(2); // 보고서 누락은 2건(수업 수보다 많음)
   });
 });
